@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scrapedatshi"
+version = "0.1.0"
+description = "Official Python SDK for the scrapedatshi RAG pipeline API"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "scrapedatshi", email = "hello@scrapedatshi.com" }]
+keywords = [
+    "rag",
+    "retrieval-augmented-generation",
+    "scraping",
+    "chunking",
+    "embeddings",
+    "vector-database",
+    "ai",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.27.0", "pydantic>=2.0.0"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",   # httpx mock transport for tests
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://scrapedatshi.com"
+Documentation = "https://docs.scrapedatshi.com/sdk/python"
+Repository = "https://github.com/mxchris18/scrapedatshi-py"
+"Bug Tracker" = "https://github.com/mxchris18/scrapedatshi-py/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["scrapedatshi"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
