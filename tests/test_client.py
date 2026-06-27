@@ -26,8 +26,8 @@ FAKE_API_KEY = "sds_test_key_1234567890"
 BASE_URL = "https://api.scrapedatshi.com"
 
 SAMPLE_CHUNKS = [
-    {"content": "Hello world chunk one.", "token_estimate": 5, "metadata": {}},
-    {"content": "Hello world chunk two.", "token_estimate": 5, "metadata": {}},
+    {"text": "Hello world chunk one.", "token_estimate": 5, "metadata": {}},
+    {"text": "Hello world chunk two.", "token_estimate": 5, "metadata": {}},
 ]
 
 CHUNK_RESPONSE = {
@@ -125,14 +125,14 @@ def test_chunk_url_raises_rate_limit_error(client):
 
 @respx.mock
 def test_chunk_url_raises_tier_error(client):
-    """chunk_url() should raise TierError when the response mentions tier/upgrade."""
+    """chunk_url() should raise AuthError on HTTP 403 (tier gate removed; server now returns AuthError)."""
     respx.post(f"{BASE_URL}/v1/rag-chunk").mock(
         return_value=httpx.Response(
             403, json={"detail": "Upgrade your plan to access this feature."}
         )
     )
 
-    with pytest.raises(TierError):
+    with pytest.raises(AuthError):
         client.pipeline.chunk_url("https://docs.example.com")
 
 
@@ -173,8 +173,7 @@ def test_sync_returns_sync_result(client):
         embedding_provider="openai",
         embedding_api_key="sk-test",
         vector_db="pinecone",
-        vector_db_api_key="pc-test",
-        index_name="test-index",
+        vector_db_config={"api_key": "pc-test", "index_host": "https://my-index.svc.pinecone.io"},
     )
 
     assert isinstance(result, SyncResult)
@@ -197,16 +196,15 @@ def test_sync_sends_correct_payload(client):
         embedding_provider="openai",
         embedding_api_key="sk-test",
         vector_db="pinecone",
-        vector_db_api_key="pc-test",
-        index_name="test-index",
+        vector_db_config={"api_key": "pc-test", "index_host": "https://my-index.svc.pinecone.io"},
     )
 
     request = route.calls[0].request
     body = json.loads(request.content)
     assert body["url"] == "https://docs.example.com"
-    assert body["embedding_provider"] == "openai"
-    assert body["vector_db"] == "pinecone"
-    assert body["index_name"] == "test-index"
+    assert body["embedding"]["provider"] == "openai"
+    assert body["vector_db"]["provider"] == "pinecone"
+    assert body["vector_db"]["api_key"] == "pc-test"
 
 
 # ── Async tests ───────────────────────────────────────────────────────────────
@@ -258,7 +256,7 @@ def test_chunk_repr():
     from scrapedatshi.models import Chunk
 
     chunk = Chunk(
-        content="Hello world this is a test chunk.", token_estimate=8, metadata={}
+        text="Hello world this is a test chunk.", token_estimate=8, metadata={}
     )
     r = repr(chunk)
     assert "tokens=8" in r

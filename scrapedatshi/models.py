@@ -14,15 +14,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ── Shared primitives ─────────────────────────────────────────────────────────
 
 
 class Chunk(BaseModel):
-    """A single text chunk produced by the pipeline."""
+    """A single text chunk produced by the pipeline.
 
-    content: str = Field(..., description="The chunk text content.")
+    The server returns the chunk text as ``"text"`` in its JSON payload.
+    This model maps that field to the public ``content`` attribute via an
+    alias so existing user code (``chunk.content``) continues to work
+    without any changes.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    content: str = Field(
+        ...,
+        alias="text",
+        description="The chunk text content (server field: ``text``).",
+    )
     token_estimate: int = Field(
         ..., description="Estimated token count for this chunk."
     )
