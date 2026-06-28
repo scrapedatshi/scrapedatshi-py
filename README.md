@@ -62,13 +62,13 @@ Credits are deducted after each successful API call. Failed requests are never c
 
 | Operation | Rate | Applies To |
 |---|---|---|
-| URL Fetch | $0.0020 / URL | `/v1/rag-chunk`, `/v1/crawl-chunk`, `/v1/sync`, `/v1/ingest` |
-| Spider Fetch | $0.0050 / URL | `/v1/spider` (replaces URL fetch) |
-| Chunk Fee | $0.0005 / chunk | All routes — per chunk generated |
-| Injection Fee | $0.0030 / chunk | `/v1/sync`, `/v1/ingest` — per chunk upserted to vector DB |
-| Contextual Retrieval | $0.0030 / URL | When `contextual_retrieval=True` |
-| JS Render | $0.0050 / URL | When `js_render=True` (Playwright headless browser) |
-| Schema Extract | $0.0020 + $0.0030 + ($0.0001 × fields) | `/v1/extract` |
+| URL Fetch | $0.0020 / URL | /v1/rag-chunk, /v1/crawl-chunk, /v1/sync, /v1/ingest |
+| Spider Fetch | $0.0050 / URL | /v1/spider (replaces standard URL fetch) |
+| Chunk Fee | $0.0005 / chunk | All routes (per individual chunk generated) |
+| Injection Fee | $0.0030 / chunk | /v1/sync, /v1/ingest (vector DB upserts) |
+| Contextual Retrieval | $0.0030 / URL | When `contextual_retrieval=True` is enabled |
+| JS Render | $0.0050 / URL | When `js_render=True` (Playwright processing) |
+| Schema Extract | $0.0030 + ($0.0001 × field) | /v1/extract baseline processing |
 
 Top up your balance at [scrapedatshi.com/portal/billing](https://scrapedatshi.com/portal/billing).
 

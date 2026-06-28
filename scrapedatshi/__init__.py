@@ -73,7 +73,7 @@ from scrapedatshi.models import (
     SyncResult,
 )
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 __author__ = "scrapedatshi"
 __all__ = [
     # Client
