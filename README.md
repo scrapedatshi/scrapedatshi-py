@@ -330,7 +330,9 @@ for key, info in LLM_PROVIDERS.items():
 | `anthropic` | Anthropic | Standard models (haiku): 8k chars · Advanced (sonnet, opus): 30k chars |
 | `gemini` | Google Gemini | Standard models (flash, lite, nano): 8k chars · Advanced (pro, etc.): 30k chars |
 
-**Document processing window:** This is a **scrapedatshi server-side cap** on how much document text is sent to the LLM per request — it is not the model's actual token limit. Standard models (names containing "mini", "flash", "haiku", "lite", or "nano") receive up to 8,000 characters of document context; all other models receive up to 30,000 characters. Use an advanced model for long-form pages (documentation, legal docs, research papers) to ensure the full document is considered.
+**Document processing window (Schema Extraction only):** This cap applies to `/v1/extract` and `/v1/extract-crawl` — it is a **scrapedatshi server-side limit** on how much page text is sent to the LLM for schema extraction, not the model's actual token limit. Standard models (names containing "mini", "flash", "haiku", "lite", or "nano") receive up to 8,000 characters; all other models receive up to 30,000 characters. Use an advanced model for long-form pages (documentation, legal docs, research papers) to ensure the full page is considered.
+
+> **Note:** This limit does **not** apply to Contextual Retrieval. CR uses a separate fixed document preview window and is not affected by model tier.
 
 ---
 
