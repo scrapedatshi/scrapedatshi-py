@@ -324,13 +324,13 @@ for key, info in LLM_PROVIDERS.items():
 
 **LLM providers** use chat/completion models — different from embedding models. A model name is always required; no default is applied. Check your provider's documentation for models available on your API key.
 
-| Key | Provider | Context Window |
+| Key | Provider | Document Processing Window |
 |---|---|---|
 | `openai` | OpenAI | Standard models (mini, etc.): 8k chars · Advanced (gpt-4o, etc.): 30k chars |
 | `anthropic` | Anthropic | Standard models (haiku): 8k chars · Advanced (sonnet, opus): 30k chars |
 | `gemini` | Google Gemini | Standard models (flash, lite, nano): 8k chars · Advanced (pro, etc.): 30k chars |
 
-**Model tiers:** Standard models (names containing "mini", "flash", "haiku", "lite", or "nano") use an 8,000 character context window. All other models use a 30,000 character context window. Use an advanced model for long-form pages (documentation, legal docs, research papers).
+**Document processing window:** This is a **scrapedatshi server-side cap** on how much document text is sent to the LLM per request — it is not the model's actual token limit. Standard models (names containing "mini", "flash", "haiku", "lite", or "nano") receive up to 8,000 characters of document context; all other models receive up to 30,000 characters. Use an advanced model for long-form pages (documentation, legal docs, research papers) to ensure the full document is considered.
 
 ---
 
