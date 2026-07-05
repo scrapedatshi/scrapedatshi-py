@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrapedatshi"
-dynamic = ["version"]
+version = "0.5.4"
 description = "Official Python SDK for the scrapedatshi RAG pipeline API"
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "scrapedatshi", email = "hello@scrapedatshi.com" }]
+authors = [{ name = "scrapedatshi", email = "dev@scrapedatshi.com" }]
 keywords = [
     "rag",
     "retrieval-augmented-generation",
@@ -46,11 +46,8 @@ dev = [
 [project.urls]
 Homepage = "https://scrapedatshi.com"
 Documentation = "https://docs.scrapedatshi.com/sdk/python"
-Repository = "https://github.com/mxchris18/scrapedatshi-py"
-"Bug Tracker" = "https://github.com/mxchris18/scrapedatshi-py/issues"
-
-[tool.hatch.version]
-path = "scrapedatshi/__init__.py"
+Repository = "https://github.com/scrapedatshi/scrapedatshi-py"
+"Bug Tracker" = "https://github.com/scrapedatshi/scrapedatshi-py/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["scrapedatshi"]

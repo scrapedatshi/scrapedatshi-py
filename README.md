@@ -674,7 +674,7 @@ truncated — check `result.content_truncated` to detect this.
 ## Development
 
 ```bash
-git clone https://github.com/mxchris18/scrapedatshi-py
+git clone https://github.com/scrapedatshi/scrapedatshi-py
 cd scrapedatshi-py
 pip install -e ".[dev]"
 pytest
@@ -684,4 +684,4 @@ pytest
 
 ## License
 
-MIT — see [LICENSE](https://github.com/mxchris18/scrapedatshi-py/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/scrapedatshi/scrapedatshi-py/blob/main/LICENSE).

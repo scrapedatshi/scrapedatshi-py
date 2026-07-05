@@ -73,7 +73,13 @@ from scrapedatshi.models import (
     SyncResult,
 )
 
-__version__ = "0.5.3"
+from importlib.metadata import PackageNotFoundError, version as _version
+
+try:
+    __version__ = _version("scrapedatshi")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
 __author__ = "scrapedatshi"
 __all__ = [
     # Client
