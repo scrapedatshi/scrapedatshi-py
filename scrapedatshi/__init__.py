@@ -63,6 +63,7 @@ from scrapedatshi.exceptions import (
     ValidationError,
 )
 from scrapedatshi.models import (
+    AutoRagResult,
     Chunk,
     ChunkResult,
     CrawlChunkResult,
@@ -103,4 +104,5 @@ __all__ = [
     "ExtractResult",
     "ExtractCrawlResult",
     "ExtractCrawlPageResult",
+    "AutoRagResult",
 ]

@@ -519,3 +519,85 @@ class ExtractCrawlResult(BaseModel):
             f"root_url={self.root_url!r}, "
             f"credits_used={self.credits_used:.4f})"
         )
+
+
+# ── AutoRAG response ──────────────────────────────────────────────────────────
+
+
+class AutoRagResult(BaseModel):
+    """
+    Response from pipeline.autorag() — full AutoRAG pipeline:
+    crawl a domain → chunk every page → embed → inject into vector DB.
+
+    Example::
+
+        result = client.pipeline.autorag(
+            url="https://docs.example.com",
+            embedding_provider="openai",
+            embedding_api_key="sk-...",
+            embedding_model="text-embedding-3-small",
+            vector_db="pinecone",
+            vector_db_config={
+                "api_key": "pc-...",
+                "index_host": "https://my-index-abc123.svc.pinecone.io",
+            },
+            max_pages=10,
+        )
+        print(f"Crawled {result.pages_crawled} pages → {result.vectors_upserted} vectors")
+        print(f"Cost: ${result.credits_used:.4f} | Remaining: ${result.credits_remaining:.4f}")
+    """
+
+    root_url: str = Field(..., description="The root URL that was crawled.")
+    crawl_mode: str = Field(..., description="Crawl mode used: 'sitemap' or 'spider'.")
+    pages_discovered: int = Field(
+        ..., description="Total URLs discovered in the sitemap or spider crawl."
+    )
+    pages_crawled: int = Field(
+        ..., description="Number of pages successfully crawled and chunked."
+    )
+    pages_failed: int = Field(..., description="Number of pages that failed to crawl.")
+    total_chunks: int = Field(
+        ..., description="Total number of chunks generated across all pages."
+    )
+    vectors_upserted: int = Field(
+        ..., description="Number of vectors written to the vector DB."
+    )
+    total_tokens: int = Field(
+        ..., description="Total tokens estimated across all chunks."
+    )
+    embedding_provider: str = Field(
+        ..., description="Embedding provider used (e.g. 'openai')."
+    )
+    embedding_model: str = Field(..., description="Embedding model used.")
+    vector_db_provider: str = Field(
+        ..., description="Vector DB provider used (e.g. 'pinecone')."
+    )
+    contextual_retrieval_used: bool = Field(
+        False,
+        description="Whether Contextual Retrieval (RAG 2.0) was applied.",
+    )
+    contextual_retrieval_error: str | None = Field(
+        None,
+        description=(
+            "Error message if contextual retrieval failed. "
+            "Vectors are still upserted without context enrichment when this is set."
+        ),
+    )
+    credits_used: float = Field(
+        0.0,
+        description="Credits deducted for this request (fetch fees + chunk fees + injection fees).",
+    )
+    credits_remaining: float = Field(
+        0.0,
+        description="Account credit balance after this request.",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"AutoRagResult("
+            f"pages_crawled={self.pages_crawled}, "
+            f"total_chunks={self.total_chunks}, "
+            f"vectors_upserted={self.vectors_upserted}, "
+            f"root_url={self.root_url!r}, "
+            f"credits_used={self.credits_used:.4f})"
+        )

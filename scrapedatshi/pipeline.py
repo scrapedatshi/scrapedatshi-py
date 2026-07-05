@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from scrapedatshi.client import ScrapedatshiClient
 
 from scrapedatshi.models import (
+    AutoRagResult,
     ChunkResult,
     CrawlChunkResult,
     ExtractCrawlPageResult,
@@ -50,9 +51,11 @@ class PipelineNamespace:
     Full Pipeline (embed + vector DB inject):
         - sync()             / sync_async()
         - ingest()           / ingest_async()
+        - autorag()          / autorag_async()
 
     Schema Extraction (extract structured data from any URL using your LLM):
         - extract()          / extract_async()
+        - extract_crawl()    / extract_crawl_async()
 
     All methods return typed response models with ``credits_used`` and
     ``credits_remaining`` fields for programmatic spend tracking.
@@ -1236,6 +1239,208 @@ class PipelineNamespace:
 
         data = await self._client._post_async("/v1/extract-crawl", json=payload)
         return _parse_extract_crawl_result(data)
+
+    # ── AutoRAG — Full Crawl Pipeline ────────────────────────────────────────
+
+    def autorag(
+        self,
+        url: str,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        vector_db: str,
+        vector_db_config: dict,
+        embedding_model: str | None = None,
+        crawl_mode: str = "sitemap",
+        max_pages: int = 5,
+        include_pattern: str | None = None,
+        exclude_pattern: str | None = None,
+        selector: str | None = None,
+        chunk_size: int = 512,
+        overlap: int = 50,
+        contextual_retrieval: bool = False,
+        llm_provider: str | None = None,
+        llm_api_key: str | None = None,
+        llm_model: str | None = None,
+    ) -> AutoRagResult:
+        """
+        Full AutoRAG pipeline: crawl a domain, chunk every page, embed, and inject
+        into a vector DB in a single call.
+
+        Args:
+            url: The root domain to crawl (e.g. ``"https://docs.example.com"``).
+            embedding_provider: Embedding provider key (e.g. ``"openai"``).
+                See :data:`scrapedatshi.providers.EMBEDDING_PROVIDERS` for all options.
+            embedding_api_key: API key for the embedding provider.
+                Pass an empty string ``""`` for Ollama (no key required).
+            vector_db: Vector DB provider key (e.g. ``"pinecone"``).
+                See :data:`scrapedatshi.providers.VECTOR_DB_PROVIDERS` for all options.
+            vector_db_config: Provider-specific configuration dict.
+                See :meth:`sync` for examples.
+            embedding_model: Model name for the embedding provider.
+            crawl_mode: ``"sitemap"`` (default) or ``"spider"``.
+            max_pages: Maximum pages to crawl and inject (default: 5, max: 200).
+            include_pattern: Only crawl URLs containing this substring.
+            exclude_pattern: Skip URLs containing this substring.
+            selector: Optional CSS selector applied to every page.
+            chunk_size: Target token count per chunk (default: 512).
+            overlap: Token overlap between consecutive chunks (default: 50).
+            contextual_retrieval: Enable RAG 2.0 contextual enrichment.
+            llm_provider: LLM provider for contextual retrieval.
+            llm_api_key: API key for the LLM provider.
+            llm_model: Model name for the LLM provider.
+
+        Returns:
+            :class:`~scrapedatshi.models.AutoRagResult`
+
+        Raises:
+            :class:`~scrapedatshi.exceptions.InsufficientCreditsError`: Balance too low.
+            :class:`~scrapedatshi.exceptions.ServerBusyError`: Server at capacity.
+
+        Example::
+
+            result = client.pipeline.autorag(
+                url="https://docs.example.com",
+                embedding_provider="openai",
+                embedding_api_key="sk-...",
+                embedding_model="text-embedding-3-small",
+                vector_db="pinecone",
+                vector_db_config={
+                    "api_key": "pc-...",
+                    "index_host": "https://my-index-abc123.svc.pinecone.io",
+                },
+                max_pages=20,
+            )
+            print(f"Crawled {result.pages_crawled} pages → {result.vectors_upserted} vectors")
+            print(f"Cost: ${result.credits_used:.4f}")
+        """
+        embedding: dict = {"provider": embedding_provider, "api_key": embedding_api_key}
+        if embedding_model:
+            embedding["model"] = embedding_model
+
+        vdb: dict = {"provider": vector_db, **vector_db_config}
+
+        payload: dict = {
+            "url": url,
+            "crawl_mode": crawl_mode,
+            "max_pages": max_pages,
+            "embedding": embedding,
+            "vector_db": vdb,
+        }
+        if include_pattern:
+            payload["include_pattern"] = include_pattern
+        if exclude_pattern:
+            payload["exclude_pattern"] = exclude_pattern
+        if selector:
+            payload["selector"] = selector
+        if chunk_size != 512:
+            payload["chunk_size"] = chunk_size
+        if overlap != 50:
+            payload["overlap"] = overlap
+        if contextual_retrieval:
+            payload["contextual_retrieval"] = True
+            if llm_provider:
+                payload["llm_provider"] = llm_provider
+            if llm_api_key:
+                payload["llm_api_key"] = llm_api_key
+            if llm_model:
+                payload["llm_model"] = llm_model
+
+        data = self._client._post("/v1/autorag", json=payload)
+        return AutoRagResult(
+            root_url=data.get("root_url", url),
+            crawl_mode=data.get("crawl_mode", crawl_mode),
+            pages_discovered=data.get("pages_discovered", 0),
+            pages_crawled=data.get("pages_crawled", 0),
+            pages_failed=data.get("pages_failed", 0),
+            total_chunks=data.get("total_chunks", 0),
+            vectors_upserted=data.get("vectors_upserted", 0),
+            total_tokens=data.get(
+                "total_tokens_estimated", data.get("total_tokens", 0)
+            ),
+            embedding_provider=embedding_provider,
+            embedding_model=data.get("embedding_model", embedding_model or ""),
+            vector_db_provider=vector_db,
+            contextual_retrieval_used=bool(data.get("contextual_retrieval", False)),
+            contextual_retrieval_error=data.get("contextual_retrieval_error"),
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    async def autorag_async(
+        self,
+        url: str,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        vector_db: str,
+        vector_db_config: dict,
+        embedding_model: str | None = None,
+        crawl_mode: str = "sitemap",
+        max_pages: int = 5,
+        include_pattern: str | None = None,
+        exclude_pattern: str | None = None,
+        selector: str | None = None,
+        chunk_size: int = 512,
+        overlap: int = 50,
+        contextual_retrieval: bool = False,
+        llm_provider: str | None = None,
+        llm_api_key: str | None = None,
+        llm_model: str | None = None,
+    ) -> AutoRagResult:
+        """Async version of :meth:`autorag`."""
+        embedding: dict = {"provider": embedding_provider, "api_key": embedding_api_key}
+        if embedding_model:
+            embedding["model"] = embedding_model
+
+        vdb: dict = {"provider": vector_db, **vector_db_config}
+
+        payload: dict = {
+            "url": url,
+            "crawl_mode": crawl_mode,
+            "max_pages": max_pages,
+            "embedding": embedding,
+            "vector_db": vdb,
+        }
+        if include_pattern:
+            payload["include_pattern"] = include_pattern
+        if exclude_pattern:
+            payload["exclude_pattern"] = exclude_pattern
+        if selector:
+            payload["selector"] = selector
+        if chunk_size != 512:
+            payload["chunk_size"] = chunk_size
+        if overlap != 50:
+            payload["overlap"] = overlap
+        if contextual_retrieval:
+            payload["contextual_retrieval"] = True
+            if llm_provider:
+                payload["llm_provider"] = llm_provider
+            if llm_api_key:
+                payload["llm_api_key"] = llm_api_key
+            if llm_model:
+                payload["llm_model"] = llm_model
+
+        data = await self._client._post_async("/v1/autorag", json=payload)
+        return AutoRagResult(
+            root_url=data.get("root_url", url),
+            crawl_mode=data.get("crawl_mode", crawl_mode),
+            pages_discovered=data.get("pages_discovered", 0),
+            pages_crawled=data.get("pages_crawled", 0),
+            pages_failed=data.get("pages_failed", 0),
+            total_chunks=data.get("total_chunks", 0),
+            vectors_upserted=data.get("vectors_upserted", 0),
+            total_tokens=data.get(
+                "total_tokens_estimated", data.get("total_tokens", 0)
+            ),
+            embedding_provider=embedding_provider,
+            embedding_model=data.get("embedding_model", embedding_model or ""),
+            vector_db_provider=vector_db,
+            contextual_retrieval_used=bool(data.get("contextual_retrieval", False)),
+            contextual_retrieval_error=data.get("contextual_retrieval_error"),
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
 
 
 # ── Response parser helpers ───────────────────────────────────────────────────

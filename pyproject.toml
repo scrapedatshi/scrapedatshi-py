@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrapedatshi"
-version = "0.5.4"
+version = "0.5.5"
 description = "Official Python SDK for the scrapedatshi RAG pipeline API"
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Internet :: WWW/HTTP",
     "Typing :: Typed",
