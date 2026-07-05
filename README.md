@@ -658,13 +658,13 @@ Per-request hard caps protect server stability and apply to all accounts:
 | Cap | Limit |
 |---|---|
 | Max pages / sitemap crawl | 200 |
-| Max pages / spider crawl | 50 |
+| Max pages / spider crawl | 200 |
 | Max chunks / request | 10,000 |
 | Max content size | ~75,000 words (auto-truncated) |
 
 **Sitemap crawl** (`crawl_mode="sitemap"`): Reads `sitemap.xml` to discover URLs. Up to 200 pages per request.
 
-**Spider crawl** (`crawl_mode="spider"`): Follows `<a href>` links via BFS. Up to 50 pages per request. More compute-intensive — start small and increase as needed.
+**Spider crawl** (`crawl_mode="spider"`): Follows `<a href>` links via BFS. Up to 200 pages per request. More compute-intensive — start small and increase as needed.
 
 Exceeding a hard cap returns HTTP 400. Content exceeding the size limit is automatically
 truncated — check `result.content_truncated` to detect this.

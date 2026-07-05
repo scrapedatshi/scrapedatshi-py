@@ -371,7 +371,7 @@ class PipelineNamespace:
             url: The root domain or sitemap URL to crawl.
             max_pages: Maximum number of pages to crawl.
                 Sitemap mode: up to 200 pages (server hard cap).
-                Spider mode: up to 50 pages (BFS link-following — more compute-intensive).
+                Spider mode: up to 200 pages (BFS link-following — more compute-intensive).
                 Defaults to the server's recommended value if not specified.
             crawl_mode: ``"sitemap"`` (default) or ``"spider"``.
             selector: Optional CSS selector applied to every page.
