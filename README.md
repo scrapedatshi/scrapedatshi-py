@@ -671,6 +671,67 @@ truncated — check `result.content_truncated` to detect this.
 
 ---
 
+## Troubleshooting
+
+### Contextual Retrieval fails — deprecated or unavailable model
+
+LLM providers periodically deprecate older models. When contextual retrieval fails due to a deprecated model, the SDK will emit a `UserWarning` automatically:
+
+```
+UserWarning: scrapedatshi contextual retrieval warning: The model 'models/gemini-2.0-flash'
+is no longer available from Google Gemini. Please select a current model.
+Check available models: https://ai.google.dev/gemini-api/docs/models
+```
+
+You can also check the error programmatically:
+
+```python
+result = client.pipeline.chunk_url(
+    "https://example.com",
+    contextual_retrieval=True,
+    llm_provider="gemini",
+    llm_api_key="AIza...",
+    llm_model="models/gemini-2.5-flash",  # use a current model
+)
+if result.contextual_retrieval_error:
+    print(f"CR warning: {result.contextual_retrieval_error}")
+```
+
+**Provider model & deprecation pages** (open in new tab):
+
+- OpenAI: <a href="https://platform.openai.com/docs/deprecations" target="_blank" rel="noopener noreferrer">platform.openai.com/docs/deprecations</a>
+- Anthropic: <a href="https://docs.anthropic.com/en/docs/about-claude/models" target="_blank" rel="noopener noreferrer">docs.anthropic.com/en/docs/about-claude/models</a>
+- Google Gemini: <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener noreferrer">ai.google.dev/gemini-api/docs/models</a>
+- Cohere: <a href="https://docs.cohere.com/docs/models" target="_blank" rel="noopener noreferrer">docs.cohere.com/docs/models</a>
+- Mistral: <a href="https://docs.mistral.ai/getting-started/models/" target="_blank" rel="noopener noreferrer">docs.mistral.ai/getting-started/models</a>
+- Voyage AI: <a href="https://docs.voyageai.com/docs/embeddings" target="_blank" rel="noopener noreferrer">docs.voyageai.com/docs/embeddings</a>
+
+---
+
+### Contextual Retrieval fails — quota exceeded
+
+Your LLM provider API key has no remaining credits. The `contextual_retrieval_error` field will contain an actionable message pointing to your provider's billing page. Note that **scrapedatshi credits and LLM provider credits are separate** — you need both.
+
+---
+
+### Suppressing contextual retrieval warnings
+
+If you handle `contextual_retrieval_error` programmatically and don't want the `UserWarning`, suppress it with Python's standard `warnings` module:
+
+```python
+import warnings
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", UserWarning)
+    result = client.pipeline.chunk_url(
+        "https://example.com",
+        contextual_retrieval=True,
+        ...
+    )
+```
+
+---
+
 ## Development
 
 ```bash
