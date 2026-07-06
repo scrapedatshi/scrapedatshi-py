@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -161,7 +162,7 @@ class PipelineNamespace:
                 payload["llm_model"] = llm_model
 
         data = self._client._post("/v1/rag-chunk", json=payload)
-        return ChunkResult(
+        result = ChunkResult(
             chunks=data.get("chunks", []),
             total_chunks=data.get("chunk_count", len(data.get("chunks", []))),
             source=url,
@@ -171,6 +172,12 @@ class PipelineNamespace:
             credits_used=float(data.get("credits_used", 0.0)),
             credits_remaining=float(data.get("credits_remaining", 0.0)),
         )
+        if result.contextual_retrieval_error:
+            warnings.warn(
+                f"scrapedatshi contextual retrieval warning: {result.contextual_retrieval_error}",
+                stacklevel=2,
+            )
+        return result
 
     async def chunk_url_async(
         self,
