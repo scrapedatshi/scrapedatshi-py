@@ -93,6 +93,24 @@ result = client.pipeline.chunk_url("https://docs.example.com")
 # result.content_truncated   → bool (True if content exceeded ~75,000 words)
 ```
 
+#### Chunk a PDF URL
+
+Pass any PDF URL directly — S3 links, CDN URLs, direct `.pdf` links — and the API automatically detects and extracts text using pdfplumber (text-layer) with RapidOCR fallback for scanned documents. No special parameters needed.
+
+```python
+# Direct S3 PDF link — automatically detected and extracted
+result = client.pipeline.chunk_url(
+    "https://my-bucket.s3.amazonaws.com/reports/annual-report-2024.pdf"
+)
+
+# CDN-hosted PDF without .pdf extension — detected via Content-Type header
+result = client.pipeline.chunk_url(
+    "https://cdn.example.com/documents/abc123"
+)
+
+print(f"Got {result.total_chunks} chunks from PDF")
+```
+
 #### Chunk a URL with JS rendering
 
 For JavaScript-heavy pages and SPAs that require a browser to render:
