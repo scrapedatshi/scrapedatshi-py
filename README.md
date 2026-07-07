@@ -117,7 +117,7 @@ print(f"Cost: ${result.credits_used:.4f}")
 
 #### Crawl a website
 
-Crawls via sitemap or spider and chunks all pages.
+Crawls via sitemap or spider and chunks all pages. **Large sites are automatically batched server-side** — no manual pagination needed.
 
 ```python
 # Sitemap crawl (default) — reads sitemap.xml
@@ -134,6 +134,10 @@ result = client.pipeline.crawl(
 
 print(f"Crawled {result.pages_crawled} pages → {result.total_chunks} chunks")
 print(f"Cost: ${result.credits_used:.4f}")
+
+# Large sites (>200 pages) are auto-batched — check if batching occurred
+if result.auto_batched:
+    print(f"Auto-batched: {result.batches_processed} batches of {result.batch_size} pages")
 ```
 
 ---
@@ -651,23 +655,45 @@ except ServerBusyError as e:
 
 ---
 
+## Auto-Batching for Large Sites
+
+When a crawl job exceeds the per-batch page cap (200 pages), the API automatically splits it into sequential batches and processes them all in a single API call. You don't need to do anything — just submit the job and it returns when all batches are complete.
+
+```python
+# This 800-page site will be processed as 4 batches of 200 pages each
+result = client.pipeline.autorag(
+    url="https://large-docs-site.com",
+    max_pages=800,
+    embedding_provider="openai",
+    embedding_api_key="sk-...",
+    vector_db="pinecone",
+    vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+)
+
+print(f"Crawled {result.pages_crawled} pages → {result.vectors_upserted} vectors")
+if result.auto_batched:
+    print(f"Processed in {result.batches_processed} batches of {result.batch_size} pages each")
+```
+
+Auto-batching applies to: `crawl()`, `autorag()`, and the underlying `/v1/crawl`, `/v1/autorag`, `/v1/crawl-chunk` endpoints.
+
+---
+
 ## Hard Caps
 
 Per-request hard caps protect server stability and apply to all accounts:
 
 | Cap | Limit |
 |---|---|
-| Max pages / sitemap crawl | 200 |
-| Max pages / spider crawl | 200 |
+| Max pages / batch | 200 (auto-batched for larger jobs) |
 | Max chunks / request | 10,000 |
 | Max content size | ~75,000 words (auto-truncated) |
 
-**Sitemap crawl** (`crawl_mode="sitemap"`): Reads `sitemap.xml` to discover URLs. Up to 200 pages per request.
+**Sitemap crawl** (`crawl_mode="sitemap"`): Reads `sitemap.xml` to discover URLs. Jobs exceeding 200 pages are automatically batched — no manual pagination needed.
 
-**Spider crawl** (`crawl_mode="spider"`): Follows `<a href>` links via BFS. Up to 200 pages per request. More compute-intensive — start small and increase as needed.
+**Spider crawl** (`crawl_mode="spider"`): Follows `<a href>` links via BFS. More compute-intensive — start small and increase as needed. Also supports auto-batching.
 
-Exceeding a hard cap returns HTTP 400. Content exceeding the size limit is automatically
-truncated — check `result.content_truncated` to detect this.
+Content exceeding the size limit is automatically truncated — check `result.content_truncated` to detect this.
 
 ---
 
