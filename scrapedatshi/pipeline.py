@@ -36,6 +36,10 @@ from scrapedatshi.models import (
     ExtractCrawlResult,
     ExtractResult,
     IngestResult,
+    InspectVectorDBResult,
+    QueryResult,
+    QueryVectorDBResult,
+    SuggestedModel,
     SyncResult,
 )
 
@@ -1445,6 +1449,223 @@ class PipelineNamespace:
             vector_db_provider=vector_db,
             contextual_retrieval_used=bool(data.get("contextual_retrieval", False)),
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    # ── Vector Query ─────────────────────────────────────────────────────────
+
+    def inspect_vectordb(
+        self,
+        vector_db: str,
+        vector_db_config: dict,
+    ) -> InspectVectorDBResult:
+        """
+        Read vector database metadata — dimension, vector count, and suggested
+        embedding models. Use this before calling :meth:`query_vectordb` to
+        confirm which embedding model was used during ingestion.
+
+        Free — no credits charged.
+
+        Args:
+            vector_db: Vector DB provider key (e.g. ``"pinecone"``).
+                See :data:`scrapedatshi.providers.VECTOR_DB_PROVIDERS` for all options.
+            vector_db_config: Provider-specific configuration dict.
+                Same shape as :meth:`sync`. Supports ``"USE_SAVED_CREDENTIAL"``
+                for keys saved in your scrapedatshi account.
+
+        Returns:
+            :class:`~scrapedatshi.models.InspectVectorDBResult`
+
+        Example::
+
+            result = client.pipeline.inspect_vectordb(
+                vector_db="pinecone",
+                vector_db_config={
+                    "api_key": "pc-...",
+                    "index_host": "https://my-index.svc.pinecone.io",
+                },
+            )
+            print(f"Dimension: {result.dimension}")
+            print(f"Vectors: {result.total_vector_count}")
+            for model in result.suggested_models:
+                print(f"  Possible model: {model.label}")
+        """
+        vdb: dict = {"provider": vector_db, **vector_db_config}
+        data = self._client._post("/v1/inspect-vectordb", json={"vector_db": vdb})
+        return InspectVectorDBResult(
+            provider=data.get("provider", vector_db),
+            dimension=data.get("dimension", 0),
+            total_vector_count=data.get("total_vector_count", 0),
+            namespace_vector_count=data.get("namespace_vector_count"),
+            namespace=data.get("namespace"),
+            suggested_models=[
+                SuggestedModel(**m) for m in data.get("suggested_models", [])
+            ],
+            dimension_known=bool(data.get("dimension_known", False)),
+            note=data.get("note"),
+        )
+
+    async def inspect_vectordb_async(
+        self,
+        vector_db: str,
+        vector_db_config: dict,
+    ) -> InspectVectorDBResult:
+        """Async version of :meth:`inspect_vectordb`."""
+        vdb: dict = {"provider": vector_db, **vector_db_config}
+        data = await self._client._post_async(
+            "/v1/inspect-vectordb", json={"vector_db": vdb}
+        )
+        return InspectVectorDBResult(
+            provider=data.get("provider", vector_db),
+            dimension=data.get("dimension", 0),
+            total_vector_count=data.get("total_vector_count", 0),
+            namespace_vector_count=data.get("namespace_vector_count"),
+            namespace=data.get("namespace"),
+            suggested_models=[
+                SuggestedModel(**m) for m in data.get("suggested_models", [])
+            ],
+            dimension_known=bool(data.get("dimension_known", False)),
+            note=data.get("note"),
+        )
+
+    def query_vectordb(
+        self,
+        query: str,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        embedding_model: str,
+        vector_db: str,
+        vector_db_config: dict,
+        top_k: int = 5,
+    ) -> QueryVectorDBResult:
+        """
+        Query your vector database using natural language.
+
+        Embeds the query using your embedding provider and runs a similarity
+        search — returning the most relevant chunks from your database.
+
+        The embedding model MUST match the model used when ingesting the data.
+        Use :meth:`inspect_vectordb` first to confirm the correct model.
+
+        Billing: $0.0002 per chunk returned (``top_k`` chunks at most).
+        Example: ``top_k=5`` → $0.001 per query.
+
+        Args:
+            query: Natural language query to search for.
+            embedding_provider: Embedding provider key (e.g. ``"openai"``).
+                Must match the provider used during ingestion.
+            embedding_api_key: API key for the embedding provider.
+                Supports ``"USE_SAVED_CREDENTIAL"`` for saved keys.
+            embedding_model: Embedding model name.
+                **Must match the model used during ingestion exactly.**
+                Use :meth:`inspect_vectordb` to confirm the correct model.
+            vector_db: Vector DB provider key (e.g. ``"pinecone"``).
+            vector_db_config: Provider-specific configuration dict.
+                Same shape as :meth:`sync`. Supports ``"USE_SAVED_CREDENTIAL"``.
+            top_k: Number of results to return (default: 5, max: 50).
+                Billed at $0.0002 per chunk returned.
+
+        Returns:
+            :class:`~scrapedatshi.models.QueryVectorDBResult`
+
+        Raises:
+            :class:`~scrapedatshi.exceptions.InsufficientCreditsError`: Balance too low.
+            :class:`~scrapedatshi.exceptions.AuthError`: Invalid API key.
+
+        Example::
+
+            # Step 1: Inspect to confirm the embedding model
+            inspect = client.pipeline.inspect_vectordb(
+                vector_db="pinecone",
+                vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+            )
+            print(f"Dimension: {inspect.dimension}")
+            print(f"Suggested: {[m.label for m in inspect.suggested_models]}")
+
+            # Step 2: Query with the confirmed model
+            result = client.pipeline.query_vectordb(
+                query="How do I authenticate with the API?",
+                embedding_provider="openai",
+                embedding_api_key="sk-...",
+                embedding_model="text-embedding-3-small",  # confirmed from inspect
+                vector_db="pinecone",
+                vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+                top_k=5,
+            )
+            print(f"Found {result.chunks_retrieved} results (cost: ${result.credits_used:.4f})")
+            for r in result.results:
+                print(f"  [{r.score:.2f}] {r.text[:100]}...")
+        """
+        payload: dict = {
+            "query": query,
+            "top_k": top_k,
+            "embedding": {
+                "provider": embedding_provider,
+                "api_key": embedding_api_key,
+                "model": embedding_model,
+            },
+            "vector_db": {"provider": vector_db, **vector_db_config},
+        }
+        data = self._client._post("/v1/query", json=payload)
+        return QueryVectorDBResult(
+            query=data.get("query", query),
+            embedding_provider=data.get("embedding_provider", embedding_provider),
+            embedding_model=data.get("embedding_model", embedding_model),
+            vector_db_provider=data.get("vector_db_provider", vector_db),
+            top_k_requested=data.get("top_k_requested", top_k),
+            chunks_retrieved=data.get("chunks_retrieved", 0),
+            results=[
+                QueryResult(
+                    text=r.get("text", ""),
+                    score=float(r.get("score", 0.0)),
+                    metadata=r.get("metadata", {}),
+                )
+                for r in data.get("results", [])
+            ],
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    async def query_vectordb_async(
+        self,
+        query: str,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        embedding_model: str,
+        vector_db: str,
+        vector_db_config: dict,
+        top_k: int = 5,
+    ) -> QueryVectorDBResult:
+        """Async version of :meth:`query_vectordb`."""
+        payload: dict = {
+            "query": query,
+            "top_k": top_k,
+            "embedding": {
+                "provider": embedding_provider,
+                "api_key": embedding_api_key,
+                "model": embedding_model,
+            },
+            "vector_db": {"provider": vector_db, **vector_db_config},
+        }
+        data = await self._client._post_async("/v1/query", json=payload)
+        return QueryVectorDBResult(
+            query=data.get("query", query),
+            embedding_provider=data.get("embedding_provider", embedding_provider),
+            embedding_model=data.get("embedding_model", embedding_model),
+            vector_db_provider=data.get("vector_db_provider", vector_db),
+            top_k_requested=data.get("top_k_requested", top_k),
+            chunks_retrieved=data.get("chunks_retrieved", 0),
+            results=[
+                QueryResult(
+                    text=r.get("text", ""),
+                    score=float(r.get("score", 0.0)),
+                    metadata=r.get("metadata", {}),
+                )
+                for r in data.get("results", [])
+            ],
             credits_used=float(data.get("credits_used", 0.0)),
             credits_remaining=float(data.get("credits_remaining", 0.0)),
         )

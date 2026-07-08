@@ -601,3 +601,120 @@ class AutoRagResult(BaseModel):
             f"root_url={self.root_url!r}, "
             f"credits_used={self.credits_used:.4f})"
         )
+
+
+# ── Vector Query responses ────────────────────────────────────────────────────
+
+
+class SuggestedModel(BaseModel):
+    """An embedding model suggestion based on detected vector dimension."""
+
+    provider: str = Field(..., description="Embedding provider key (e.g. 'openai').")
+    model: str = Field(..., description="Model name (e.g. 'text-embedding-3-small').")
+    label: str = Field(..., description="Human-readable label for display.")
+
+
+class InspectVectorDBResult(BaseModel):
+    """
+    Result of :meth:`~scrapedatshi.pipeline.PipelineNamespace.inspect_vectordb`.
+
+    Contains vector database metadata and embedding model suggestions based on
+    the detected vector dimension. Use this before calling
+    :meth:`~scrapedatshi.pipeline.PipelineNamespace.query_vectordb` to confirm
+    which embedding model was used during ingestion.
+
+    Free — no credits charged.
+    """
+
+    provider: str = Field(..., description="Vector DB provider key.")
+    dimension: int = Field(
+        0,
+        description="Vector dimension detected from the index/collection. 0 if unknown.",
+    )
+    total_vector_count: int = Field(
+        0, description="Total number of vectors in the index/collection."
+    )
+    namespace_vector_count: int | None = Field(
+        None, description="Vector count in the specified namespace (Pinecone only)."
+    )
+    namespace: str | None = Field(
+        None, description="Namespace queried (Pinecone only)."
+    )
+    suggested_models: list[SuggestedModel] = Field(
+        default_factory=list,
+        description=(
+            "Embedding models that match the detected dimension. "
+            "Confirm which model was used during ingestion before calling query_vectordb()."
+        ),
+    )
+    dimension_known: bool = Field(
+        False,
+        description="True if the dimension was successfully read from the DB.",
+    )
+    note: str | None = Field(
+        None, description="Guidance message about model selection."
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"InspectVectorDBResult("
+            f"provider={self.provider!r}, "
+            f"dimension={self.dimension}, "
+            f"total_vector_count={self.total_vector_count}, "
+            f"suggested_models={[m.label for m in self.suggested_models]})"
+        )
+
+
+class QueryResult(BaseModel):
+    """A single result from a vector database similarity search."""
+
+    text: str = Field(..., description="The chunk text content.")
+    score: float = Field(
+        ..., description="Similarity score (0–1, higher is more similar)."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata attached to this chunk (source URL, chunk_index, etc.).",
+    )
+
+    def __repr__(self) -> str:
+        preview = self.text[:60].replace("\n", " ")
+        return f"QueryResult(score={self.score:.3f}, text={preview!r}...)"
+
+
+class QueryVectorDBResult(BaseModel):
+    """
+    Result of :meth:`~scrapedatshi.pipeline.PipelineNamespace.query_vectordb`.
+
+    Contains the top-N most relevant chunks from your vector database,
+    ordered by similarity score descending.
+
+    Billing: $0.0002 per chunk returned.
+    """
+
+    query: str = Field(..., description="The original query string.")
+    embedding_provider: str = Field(..., description="Embedding provider used.")
+    embedding_model: str = Field(..., description="Embedding model used.")
+    vector_db_provider: str = Field(..., description="Vector DB provider queried.")
+    top_k_requested: int = Field(..., description="Number of results requested.")
+    chunks_retrieved: int = Field(
+        ..., description="Number of results actually returned."
+    )
+    results: list[QueryResult] = Field(
+        default_factory=list,
+        description="Matching chunks ordered by similarity score descending.",
+    )
+    credits_used: float = Field(
+        0.0, description="Credits deducted ($0.0002 × chunks_retrieved)."
+    )
+    credits_remaining: float = Field(
+        0.0, description="Account credit balance after this request."
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"QueryVectorDBResult("
+            f"query={self.query[:40]!r}, "
+            f"chunks_retrieved={self.chunks_retrieved}, "
+            f"credits_used={self.credits_used:.4f})"
+        )

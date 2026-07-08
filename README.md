@@ -97,6 +97,56 @@ result = client.pipeline.chunk_url("https://docs.example.com")
 
 Pass any PDF URL directly — S3 links, CDN URLs, direct `.pdf` links — and the API automatically detects and extracts text using pdfplumber (text-layer) with RapidOCR fallback for scanned documents. No special parameters needed.
 
+---
+
+### Query Your Vector Database
+
+After ingesting data, query it using natural language. Use `inspect_vectordb()` first to confirm the correct embedding model.
+
+#### Inspect a vector database (free)
+
+```python
+result = client.pipeline.inspect_vectordb(
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+)
+
+print(f"Dimension: {result.dimension}")
+print(f"Vectors: {result.total_vector_count}")
+print(f"Suggested models: {[m.label for m in result.suggested_models]}")
+# → Suggested models: ['OpenAI text-embedding-3-small', 'OpenAI text-embedding-ada-002 (legacy)']
+```
+
+#### Query a vector database
+
+```python
+# Confirm the model from inspect_vectordb first, then query
+result = client.pipeline.query_vectordb(
+    query="How do I authenticate with the API?",
+    embedding_provider="openai",
+    embedding_api_key=os.getenv("OPENAI_API_KEY"),
+    embedding_model="text-embedding-3-small",  # must match ingestion model
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+    top_k=5,
+)
+
+print(f"Found {result.chunks_retrieved} results (cost: ${result.credits_used:.4f})")
+for r in result.results:
+    print(f"  [{r.score:.2f}] {r.text[:100]}...")
+```
+
+**Billing:** $0.0002 per chunk returned. Default `top_k=5` → $0.001 per query.
+`inspect_vectordb()` is always free.
+
+---
+
 ```python
 # Direct S3 PDF link — automatically detected and extracted
 result = client.pipeline.chunk_url(
