@@ -39,6 +39,7 @@ from scrapedatshi.models import (
     InspectVectorDBResult,
     QueryResult,
     QueryVectorDBResult,
+    RagChatResult,
     SuggestedModel,
     SyncResult,
 )
@@ -1668,6 +1669,164 @@ class PipelineNamespace:
             ],
             credits_used=float(data.get("credits_used", 0.0)),
             credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    # ── RAG Chat ─────────────────────────────────────────────────────────────
+
+    def rag_chat(
+        self,
+        query: str,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        embedding_model: str,
+        vector_db: str,
+        vector_db_config: dict,
+        llm_provider: str,
+        llm_api_key: str,
+        llm_model: str,
+        top_k: int = 5,
+    ) -> RagChatResult:
+        """
+        RAG Chat: embed a query, retrieve the most relevant chunks from your
+        vector database, and generate a grounded LLM answer.
+
+        The embedding model MUST match the model used when ingesting the data.
+        Use :meth:`inspect_vectordb` first to confirm the correct model.
+
+        Billing: $0.0002 per chunk retrieved (same as :meth:`query_vectordb`).
+        LLM tokens are your own cost — scrapedatshi does not bill for LLM usage.
+
+        Args:
+            query: Natural language question to answer.
+            embedding_provider: Embedding provider key (e.g. ``"openai"``).
+                Must match the provider used during ingestion.
+            embedding_api_key: API key for the embedding provider.
+                Supports ``"USE_SAVED_CREDENTIAL"`` for saved keys.
+            embedding_model: Embedding model name.
+                **Must match the model used during ingestion exactly.**
+            vector_db: Vector DB provider key (e.g. ``"pinecone"``).
+            vector_db_config: Provider-specific configuration dict.
+            llm_provider: LLM provider for answer generation (``"openai"``, ``"anthropic"``, or ``"gemini"``).
+            llm_api_key: API key for the LLM provider.
+                Supports ``"USE_SAVED_CREDENTIAL"`` for saved keys.
+            llm_model: LLM model name for answer generation.
+            top_k: Number of chunks to retrieve (default: 5, max: 20).
+                Billed at $0.0002 per chunk retrieved.
+
+        Returns:
+            :class:`~scrapedatshi.models.RagChatResult`
+
+        Raises:
+            :class:`~scrapedatshi.exceptions.InsufficientCreditsError`: Balance too low.
+            :class:`~scrapedatshi.exceptions.AuthError`: Invalid API key.
+
+        Example::
+
+            result = client.pipeline.rag_chat(
+                query="How do I authenticate with the API?",
+                embedding_provider="openai",
+                embedding_api_key="sk-...",
+                embedding_model="text-embedding-3-small",  # must match ingestion model
+                vector_db="pinecone",
+                vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+                llm_provider="openai",
+                llm_api_key="sk-...",
+                llm_model="gpt-4o-mini",
+                top_k=5,
+            )
+            print(result.answer)
+            print(f"Based on {result.chunks_retrieved} chunks (cost: ${result.credits_used:.4f})")
+            for source in result.sources:
+                print(f"  [{source.score:.2f}] {source.text[:80]}...")
+        """
+        payload: dict = {
+            "query": query,
+            "top_k": top_k,
+            "embedding": {
+                "provider": embedding_provider,
+                "api_key": embedding_api_key,
+                "model": embedding_model,
+            },
+            "vector_db": {"provider": vector_db, **vector_db_config},
+            "llm_provider": llm_provider,
+            "llm_api_key": llm_api_key,
+            "llm_model": llm_model,
+        }
+        data = self._client._post("/v1/rag-chat", json=payload)
+        return RagChatResult(
+            query=data.get("query", query),
+            answer=data.get("answer", ""),
+            embedding_provider=data.get("embedding_provider", embedding_provider),
+            embedding_model=data.get("embedding_model", embedding_model),
+            vector_db_provider=data.get("vector_db_provider", vector_db),
+            llm_provider=data.get("llm_provider", llm_provider),
+            llm_model=data.get("llm_model", llm_model),
+            top_k_requested=data.get("top_k_requested", top_k),
+            chunks_retrieved=data.get("chunks_retrieved", 0),
+            sources=[
+                QueryResult(
+                    text=r.get("text", ""),
+                    score=float(r.get("score", 0.0)),
+                    metadata=r.get("metadata", {}),
+                )
+                for r in data.get("sources", [])
+            ],
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+            llm_error=data.get("llm_error"),
+        )
+
+    async def rag_chat_async(
+        self,
+        query: str,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        embedding_model: str,
+        vector_db: str,
+        vector_db_config: dict,
+        llm_provider: str,
+        llm_api_key: str,
+        llm_model: str,
+        top_k: int = 5,
+    ) -> RagChatResult:
+        """Async version of :meth:`rag_chat`."""
+        payload: dict = {
+            "query": query,
+            "top_k": top_k,
+            "embedding": {
+                "provider": embedding_provider,
+                "api_key": embedding_api_key,
+                "model": embedding_model,
+            },
+            "vector_db": {"provider": vector_db, **vector_db_config},
+            "llm_provider": llm_provider,
+            "llm_api_key": llm_api_key,
+            "llm_model": llm_model,
+        }
+        data = await self._client._post_async("/v1/rag-chat", json=payload)
+        return RagChatResult(
+            query=data.get("query", query),
+            answer=data.get("answer", ""),
+            embedding_provider=data.get("embedding_provider", embedding_provider),
+            embedding_model=data.get("embedding_model", embedding_model),
+            vector_db_provider=data.get("vector_db_provider", vector_db),
+            llm_provider=data.get("llm_provider", llm_provider),
+            llm_model=data.get("llm_model", llm_model),
+            top_k_requested=data.get("top_k_requested", top_k),
+            chunks_retrieved=data.get("chunks_retrieved", 0),
+            sources=[
+                QueryResult(
+                    text=r.get("text", ""),
+                    score=float(r.get("score", 0.0)),
+                    metadata=r.get("metadata", {}),
+                )
+                for r in data.get("sources", [])
+            ],
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+            llm_error=data.get("llm_error"),
         )
 
 

@@ -682,6 +682,65 @@ class QueryResult(BaseModel):
         return f"QueryResult(score={self.score:.3f}, text={preview!r}...)"
 
 
+class RagChatResult(BaseModel):
+    """
+    Result of :meth:`~scrapedatshi.pipeline.PipelineNamespace.rag_chat`.
+
+    Contains the LLM-generated answer grounded in retrieved chunks from your
+    vector database, plus the source chunks used to generate the answer.
+
+    Billing: $0.0002 per chunk retrieved (same as /v1/query).
+    LLM tokens are your own cost — scrapedatshi does not bill for LLM usage.
+    """
+
+    query: str = Field(..., description="The original query string.")
+    answer: str = Field(
+        ...,
+        description=(
+            "The LLM-generated answer grounded in the retrieved chunks. "
+            "If no chunks were found, contains a message explaining the issue."
+        ),
+    )
+    embedding_provider: str = Field(..., description="Embedding provider used.")
+    embedding_model: str = Field(..., description="Embedding model used.")
+    vector_db_provider: str = Field(..., description="Vector DB provider queried.")
+    llm_provider: str = Field(
+        ..., description="LLM provider used for answer generation."
+    )
+    llm_model: str = Field(..., description="LLM model used for answer generation.")
+    top_k_requested: int = Field(..., description="Number of chunks requested.")
+    chunks_retrieved: int = Field(
+        ..., description="Number of chunks actually retrieved and used as context."
+    )
+    sources: list[QueryResult] = Field(
+        default_factory=list,
+        description="Source chunks used to generate the answer, ordered by similarity score.",
+    )
+    credits_used: float = Field(
+        0.0, description="Credits deducted ($0.0002 × chunks_retrieved)."
+    )
+    credits_remaining: float = Field(
+        0.0, description="Account credit balance after this request."
+    )
+    llm_error: str | None = Field(
+        None,
+        description=(
+            "If set, the LLM call failed but chunks were still retrieved. "
+            "The answer field will contain an error description."
+        ),
+    )
+
+    def __repr__(self) -> str:
+        preview = self.answer[:60].replace("\n", " ")
+        return (
+            f"RagChatResult("
+            f"query={self.query[:40]!r}, "
+            f"chunks_retrieved={self.chunks_retrieved}, "
+            f"credits_used={self.credits_used:.4f}, "
+            f"answer={preview!r}...)"
+        )
+
+
 class QueryVectorDBResult(BaseModel):
     """
     Result of :meth:`~scrapedatshi.pipeline.PipelineNamespace.query_vectordb`.

@@ -145,6 +145,33 @@ for r in result.results:
 **Billing:** $0.0002 per chunk returned. Default `top_k=5` → $0.001 per query.
 `inspect_vectordb()` is always free.
 
+#### RAG Chat — retrieve chunks and generate a grounded answer
+
+```python
+result = client.pipeline.rag_chat(
+    query="How do I authenticate with the API?",
+    embedding_provider="openai",
+    embedding_api_key=os.getenv("OPENAI_API_KEY"),
+    embedding_model="text-embedding-3-small",  # must match ingestion model
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+    llm_provider="openai",
+    llm_api_key=os.getenv("OPENAI_API_KEY"),
+    llm_model="gpt-4o-mini",
+    top_k=5,
+)
+
+print(result.answer)
+print(f"Based on {result.chunks_retrieved} chunks (cost: ${result.credits_used:.4f})")
+for source in result.sources:
+    print(f"  [{source.score:.2f}] {source.text[:80]}...")
+```
+
+**Billing:** $0.0002 per chunk retrieved (same as `query_vectordb()`). LLM tokens are your own cost — scrapedatshi does not bill for LLM usage.
+
 ---
 
 ```python
