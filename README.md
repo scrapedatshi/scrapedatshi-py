@@ -60,17 +60,61 @@ New accounts receive **$1.00 free credits** — no credit card required.
 scrapedatshi uses a **pay-per-use credit wallet** — no subscriptions, no monthly fees.
 Credits are deducted after each successful API call. Failed requests are never charged.
 
-| Operation | Rate | Applies To |
+### Fetch Mode Pricing
+
+Starting in v0.8.0, the SDK uses **local-fetch mode by default** — your machine fetches the URL using your own IP address and submits the HTML to our server for processing. This is cheaper and keeps your IP off our server.
+
+| Operation | Rate | Mode |
 |---|---|---|
-| URL Fetch | $0.0020 / URL | /v1/rag-chunk, /v1/crawl-chunk, /v1/sync, /v1/ingest |
-| Spider Fetch | $0.0050 / URL | /v1/spider (replaces standard URL fetch) |
-| Chunk Fee | $0.0005 / chunk | All routes (per individual chunk generated) |
-| Injection Fee | $0.0030 / chunk | /v1/sync, /v1/ingest (vector DB upserts) |
-| Contextual Retrieval | $0.0010 / chunk | When `contextual_retrieval=True` is enabled (per successfully enriched chunk) |
-| JS Render | $0.0050 / URL | When `js_render=True` (Playwright processing) |
-| Schema Extract | $0.0030 + ($0.0001 × field) | /v1/extract baseline processing |
+| **Per URL (local fetch)** | **$0.0020 / URL** | SDK/MCP default — your machine fetches |
+| Per URL (server fetch) | $0.0040 / URL | Portal tools, or SDK `fetch_mode="server"` |
+| Spider Fetch (local) | $0.0050 / URL | /v1/spider |
+| Spider Fetch (server) | $0.0100 / URL | /v1/spider via portal |
+| Chunk Fee | $0.0005 / chunk | All routes (per chunk generated) |
+| Injection Fee | $0.0030 / chunk | /v1/sync, /v1/ingest, /v1/autorag (vector DB upserts) |
+| Contextual Retrieval | $0.0010 / chunk | When `contextual_retrieval=True` (per enriched chunk) |
+| JS Render | $0.0050 / URL | When `js_render=True` (server fetch only) |
+| Schema Extract | $0.0030 + ($0.0001 × field) | /v1/extract baseline |
+| Vector Query | $0.0002 / chunk | /v1/query (per chunk retrieved) |
 
 Top up your balance at [scrapedatshi.com/portal/billing](https://scrapedatshi.com/portal/billing).
+
+---
+
+## Fetch Mode
+
+The SDK supports two fetch modes, controlled by the `fetch_mode` parameter on `ScrapedatshiClient`:
+
+### `fetch_mode="local"` (default — v0.8.0+)
+
+The SDK fetches the URL on **your machine** using your IP address, then submits the raw HTML to our server for processing. This is the default and recommended mode.
+
+- ✅ Your IP is used — not our server's
+- ✅ Billed at the standard per-URL rate ($0.0020)
+- ✅ Faster — no double-hop latency
+- ✅ Works for any publicly accessible URL
+
+```python
+# Default — local fetch (your IP)
+client = ScrapedatshiClient(api_key="sds_...")
+result = client.pipeline.chunk_url("https://docs.example.com")
+```
+
+### `fetch_mode="server"`
+
+Our server fetches the URL. Use this if you are behind a corporate firewall, need server-managed IP rotation, or are running in an environment without outbound HTTP access.
+
+- ⚠️ Our server's IP is used
+- ⚠️ Billed at 2× the standard rate ($0.0040 / URL)
+- ✅ Works from restricted environments (no outbound access needed)
+
+```python
+# Server fetch — our server fetches the URL
+client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
+result = client.pipeline.chunk_url("https://docs.example.com")
+```
+
+> **Note:** The portal no-code tools always use server fetch and are billed at the server fetch rate.
 
 ---
 

@@ -166,6 +166,11 @@ class PipelineNamespace:
             if llm_model:
                 payload["llm_model"] = llm_model
 
+        # Local-fetch mode (default): fetch URL on the caller's machine, submit HTML
+        if self._client.fetch_mode == "local":
+            html = self._client._fetch_url_locally(url)
+            payload["html"] = html
+
         data = self._client._post("/v1/rag-chunk", json=payload)
         result = ChunkResult(
             chunks=data.get("chunks", []),
@@ -215,6 +220,11 @@ class PipelineNamespace:
                 payload["llm_api_key"] = llm_api_key
             if llm_model:
                 payload["llm_model"] = llm_model
+
+        # Local-fetch mode (default): fetch URL on the caller's machine, submit HTML
+        if self._client.fetch_mode == "local":
+            html = await self._client._fetch_url_locally_async(url)
+            payload["html"] = html
 
         data = await self._client._post_async("/v1/rag-chunk", json=payload)
         return ChunkResult(

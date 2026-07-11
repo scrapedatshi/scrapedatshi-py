@@ -42,6 +42,12 @@ _DEFAULT_BASE_URL = "https://api.scrapedatshi.com"
 # Default timeouts (seconds)
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
 
+# Timeout used for local URL fetches (client-side, before submitting HTML to the API)
+_LOCAL_FETCH_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+
+# User-Agent for local fetches — identifies the SDK to target sites
+_LOCAL_FETCH_USER_AGENT = "scrapedatshi-py/0.8.0 (+https://scrapedatshi.com/bot)"
+
 
 class ScrapedatshiClient:
     """
@@ -56,14 +62,25 @@ class ScrapedatshiClient:
                  Falls back to the ``SCRAPEDATSHI_API_KEY`` environment variable.
         base_url: Override the API base URL (useful for self-hosted or staging).
         timeout: Custom :class:`httpx.Timeout` instance.
+        fetch_mode: ``"local"`` (default) or ``"server"``.
+                    ``"local"`` — the SDK fetches URLs using the caller's IP address
+                    and submits the raw HTML to the API for processing. This is the
+                    default and is billed at the standard per-URL rate.
+                    ``"server"`` — the API server fetches the URL (legacy behaviour).
+                    Billed at 2× the standard per-URL rate. Use this if you are behind
+                    a firewall or need server-managed IP rotation.
 
     Raises:
         :class:`~scrapedatshi.exceptions.AuthError`: If no API key is provided.
 
     Example::
 
-        # Sync
+        # Sync (local fetch — default, uses your IP)
         client = ScrapedatshiClient(api_key="sds_...")
+        result = client.pipeline.chunk_url("https://docs.example.com")
+
+        # Sync (server fetch — legacy, uses our server's IP)
+        client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
         result = client.pipeline.chunk_url("https://docs.example.com")
 
         # Async context manager
@@ -77,6 +94,7 @@ class ScrapedatshiClient:
         *,
         base_url: str = _DEFAULT_BASE_URL,
         timeout: httpx.Timeout = _DEFAULT_TIMEOUT,
+        fetch_mode: str = "local",
     ) -> None:
         resolved_key = api_key or os.environ.get("SCRAPEDATSHI_API_KEY")
         if not resolved_key:
@@ -85,9 +103,13 @@ class ScrapedatshiClient:
                 "SCRAPEDATSHI_API_KEY environment variable."
             )
 
+        if fetch_mode not in ("local", "server"):
+            raise ValueError("fetch_mode must be 'local' or 'server'.")
+
         self._api_key = resolved_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self.fetch_mode = fetch_mode
 
         # Shared headers for all requests
         self._headers = {
@@ -102,6 +124,57 @@ class ScrapedatshiClient:
 
         # Namespaces
         self.pipeline = PipelineNamespace(self)
+
+    # ── Local URL fetch helpers ───────────────────────────────────────────────
+
+    def _fetch_url_locally(self, url: str) -> str:
+        """
+        Fetch a URL synchronously using the caller's machine and IP address.
+
+        Returns the raw HTML string.  Used by local-fetch mode (the default).
+        The request uses a neutral User-Agent that identifies the SDK.
+
+        Raises:
+            :class:`~scrapedatshi.exceptions.ScrapedatshiError`: On network failure.
+            :class:`~scrapedatshi.exceptions.TimeoutError`: If the request times out.
+        """
+        headers = {"User-Agent": _LOCAL_FETCH_USER_AGENT}
+        try:
+            with httpx.Client(
+                timeout=_LOCAL_FETCH_TIMEOUT, follow_redirects=True
+            ) as client:
+                response = client.get(url, headers=headers)
+                response.raise_for_status()
+                return response.text
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"Local fetch of {url} timed out.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise ScrapedatshiError(
+                f"Local fetch of {url} returned HTTP {exc.response.status_code}."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ScrapedatshiError(f"Local fetch of {url} failed: {exc}") from exc
+
+    async def _fetch_url_locally_async(self, url: str) -> str:
+        """
+        Async version of :meth:`_fetch_url_locally`.
+        """
+        headers = {"User-Agent": _LOCAL_FETCH_USER_AGENT}
+        try:
+            async with httpx.AsyncClient(
+                timeout=_LOCAL_FETCH_TIMEOUT, follow_redirects=True
+            ) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                return response.text
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"Local fetch of {url} timed out.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise ScrapedatshiError(
+                f"Local fetch of {url} returned HTTP {exc.response.status_code}."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ScrapedatshiError(f"Local fetch of {url} failed: {exc}") from exc
 
     # ── Sync HTTP helpers ─────────────────────────────────────────────────────
 
@@ -189,7 +262,10 @@ class ScrapedatshiClient:
 
     def __repr__(self) -> str:
         masked = self._api_key[:8] + "..." if len(self._api_key) > 8 else "***"
-        return f"ScrapedatshiClient(api_key={masked!r}, base_url={self._base_url!r})"
+        return (
+            f"ScrapedatshiClient(api_key={masked!r}, base_url={self._base_url!r}, "
+            f"fetch_mode={self.fetch_mode!r})"
+        )
 
 
 # ── Response handler ──────────────────────────────────────────────────────────
