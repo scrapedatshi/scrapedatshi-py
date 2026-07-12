@@ -203,7 +203,18 @@ URL = "https://docs.example.com"   # ← EDIT: the URL to scrape
 # SELECTOR = "article"             # CSS selector to target main content
 # CHUNK_SIZE = 512                 # tokens per chunk (default: 400)
 # OVERLAP = 50                     # token overlap between chunks (default: 40)
-# JS_RENDER = False                # set True for JavaScript-heavy SPAs
+# JS_RENDER = False                # set True for JavaScript-heavy SPAs (billed at $0.0050/URL)
+
+# Authenticated scraping — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123", "csrf": "xyz"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+# ALLOW_SUBDOMAINS = False         # set True to share cookies with subdomains
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"         # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
 # ─────────────────────────────────────────────────────────────────────────────
 
 client = ScrapedatshiClient()  # reads SCRAPEDATSHI_API_KEY from .env
@@ -228,6 +239,10 @@ _EXAMPLES["02_chunk_file.py"] = '''\
 
 Supports: .pdf, .md, .txt, .yaml, .yml, .json
 No vector DB or embedding key required.
+
+Fetch mode note:
+  local (default) — file parsed on your machine, text sent to server for chunking
+  server          — file sent to our server for parsing + OCR (use for scanned PDFs)
 """
 
 import os
@@ -242,6 +257,15 @@ FILE_PATH = "./docs/manual.pdf"    # ← EDIT: path to your local file
 # Optional settings (uncomment to use)
 # CHUNK_SIZE = 512
 # OVERLAP = 50
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"         # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+
+# For scanned/image-only PDFs that need OCR — switch to server fetch
+# client = ScrapedatshiClient(fetch_mode="server")
 # ─────────────────────────────────────────────────────────────────────────────
 
 client = ScrapedatshiClient()
@@ -285,6 +309,19 @@ CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
 # Optional filters (uncomment to use)
 # INCLUDE_PATTERN = "/docs/"             # only crawl URLs containing this
 # EXCLUDE_PATTERN = "/blog/"             # skip URLs containing this
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+
+# Authenticated crawl — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+# ALLOW_SUBDOMAINS = False               # set True to crawl subdomains (e.g. wiki.company.com)
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"               # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
 # ─────────────────────────────────────────────────────────────────────────────
 
 client = ScrapedatshiClient()
@@ -329,6 +366,22 @@ VECTOR_DB_CONFIG = {                       # ← EDIT: your vector DB config
     "api_key":    os.getenv("PINECONE_API_KEY"),
     "index_host": os.getenv("PINECONE_INDEX_HOST"),
 }
+
+# Optional settings (uncomment to use)
+# SELECTOR = "article"                     # CSS selector to target main content
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+# JS_RENDER = False                        # set True for JavaScript-heavy SPAs ($0.0050/URL)
+
+# Authenticated scraping — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"                 # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
 # ─────────────────────────────────────────────────────────────────────────────
 
 client = ScrapedatshiClient()
@@ -377,6 +430,19 @@ VECTOR_DB_CONFIG = {
     "api_key":    os.getenv("PINECONE_API_KEY"),
     "index_host": os.getenv("PINECONE_INDEX_HOST"),
 }
+
+# Optional settings (uncomment to use)
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"                 # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+
+# For scanned/image-only PDFs that need OCR — switch to server fetch
+# client = ScrapedatshiClient(fetch_mode="server")
 # ─────────────────────────────────────────────────────────────────────────────
 
 client = ScrapedatshiClient()
@@ -479,6 +545,19 @@ CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
 # Optional filters (uncomment to use)
 # INCLUDE_PATTERN = "/docs/"
 # EXCLUDE_PATTERN = "/blog/"
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+
+# Authenticated crawl — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+# ALLOW_SUBDOMAINS = False               # set True to crawl subdomains
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"               # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
 
 EMBEDDING_PROVIDER = "openai"
 EMBEDDING_MODEL    = "text-embedding-3-small"
@@ -543,6 +622,14 @@ LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
 
 # Set to True to extract a list of items (e.g. product listing pages)
 EXTRACT_AS_LIST = False
+
+# Optional settings (uncomment to use)
+# SELECTOR = "article"                             # CSS selector to target main content
+# JS_RENDER = False                                # set True for JavaScript-heavy SPAs
+
+# Authenticated scraping — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
 # ─────────────────────────────────────────────────────────────────────────────
 
 client = ScrapedatshiClient()
@@ -595,8 +682,15 @@ LLM_PROVIDER = "openai"
 LLM_MODEL    = "gpt-4o-mini"
 LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
 
-# Optional: only crawl URLs matching this pattern
-# INCLUDE_PATTERN = "/products/"
+# Optional filters (uncomment to use)
+# INCLUDE_PATTERN = "/products/"             # only crawl URLs containing this
+# EXCLUDE_PATTERN = "/archive/"             # skip URLs containing this
+# JS_RENDER = False                          # set True for JavaScript-heavy SPAs
+
+# Authenticated crawl — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+# ALLOW_SUBDOMAINS = False                   # set True to crawl subdomains
 # ─────────────────────────────────────────────────────────────────────────────
 
 client = ScrapedatshiClient()
