@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrapedatshi"
-version = "0.8.0"
+version = "0.9.0"
 description = "Official Python SDK for the scrapedatshi RAG pipeline API"
 readme = "README.md"
 license = { text = "MIT" }
@@ -36,12 +36,15 @@ requires-python = ">=3.10"
 dependencies = ["httpx>=0.27.0", "pydantic>=2.0.0"]
 
 [project.optional-dependencies]
+# Install pdfplumber for local PDF parsing (used by chunk_file() in local-fetch mode)
+pdf = ["pdfplumber>=0.10.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "respx>=0.21",   # httpx mock transport for tests
     "ruff>=0.4",
     "mypy>=1.10",
+    "pdfplumber>=0.10.0",  # for testing local PDF extraction
 ]
 
 [project.urls]

@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scrapedatshi.client import ScrapedatshiClient
 
+from scrapedatshi._file_parser import _extract_file_text_locally, _guess_source_type
 from scrapedatshi.models import (
     AutoRagResult,
     ChunkResult,
@@ -252,12 +253,19 @@ class PipelineNamespace:
         llm_model: str | None = None,
     ) -> ChunkResult:
         """
-        Upload a local file, chunk its content, and return structured JSON chunks.
+        Parse a local file and chunk its content into RAG-ready segments.
         Supports PDF, MD, TXT, YAML, YML, and JSON files.
         No embedding or vector DB required.
 
+        In local-fetch mode (default), the file is parsed on your machine using
+        your own CPU — no heavy PDF processing on our server.  The extracted text
+        is submitted to /v1/process-text for chunking only.
+
+        In server-fetch mode (fetch_mode="server"), the file is uploaded to our
+        server for parsing and chunking (legacy behaviour).
+
         Args:
-            file_path: Path to the local file to upload and chunk.
+            file_path: Path to the local file to parse and chunk.
             chunk_size: Target token count per chunk (default: 512).
             overlap: Token overlap between consecutive chunks (default: 50).
             contextual_retrieval: Enable RAG 2.0 contextual enrichment.
@@ -278,8 +286,34 @@ class PipelineNamespace:
             print(f"Cost: ${result.credits_used:.4f}")
         """
         path = Path(file_path)
-        mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
+        if self._client.fetch_mode == "local":
+            # Local mode: parse the file on this machine, send text to server
+            text = _extract_file_text_locally(path)
+            payload: dict = {
+                "url": f"file://{path.name}",
+                "text": text,
+                "source_type": _guess_source_type(path),
+            }
+            if chunk_size != 512:
+                payload["chunk_size"] = chunk_size
+            if overlap != 50:
+                payload["overlap"] = overlap
+            data = self._client._post("/v1/process-text", json=payload)
+            all_chunks = data.get("chunks", [])
+            return ChunkResult(
+                chunks=all_chunks,
+                total_chunks=data.get("chunk_count", len(all_chunks)),
+                source=path.name,
+                contextual_retrieval_used=False,
+                contextual_retrieval_error=None,
+                content_truncated=False,
+                credits_used=float(data.get("credits_used", 0.0)),
+                credits_remaining=float(data.get("credits_remaining", 0.0)),
+            )
+
+        # Server mode: upload file for server-side parsing (legacy)
+        mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         form_data: dict = {}
         if chunk_size != 512:
             form_data["chunk_size"] = str(chunk_size)
@@ -328,8 +362,36 @@ class PipelineNamespace:
     ) -> ChunkResult:
         """Async version of :meth:`chunk_file`."""
         path = Path(file_path)
-        mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
+        if self._client.fetch_mode == "local":
+            # Local mode: parse the file on this machine, send text to server
+            import asyncio as _asyncio
+
+            text = await _asyncio.to_thread(_extract_file_text_locally, path)
+            payload: dict = {
+                "url": f"file://{path.name}",
+                "text": text,
+                "source_type": _guess_source_type(path),
+            }
+            if chunk_size != 512:
+                payload["chunk_size"] = chunk_size
+            if overlap != 50:
+                payload["overlap"] = overlap
+            data = await self._client._post_async("/v1/process-text", json=payload)
+            all_chunks = data.get("chunks", [])
+            return ChunkResult(
+                chunks=all_chunks,
+                total_chunks=data.get("chunk_count", len(all_chunks)),
+                source=path.name,
+                contextual_retrieval_used=False,
+                contextual_retrieval_error=None,
+                content_truncated=False,
+                credits_used=float(data.get("credits_used", 0.0)),
+                credits_remaining=float(data.get("credits_remaining", 0.0)),
+            )
+
+        # Server mode: upload file for server-side parsing (legacy)
+        mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         form_data: dict = {}
         if chunk_size != 512:
             form_data["chunk_size"] = str(chunk_size)

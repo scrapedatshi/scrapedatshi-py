@@ -141,6 +141,36 @@ result = client.pipeline.chunk_url("https://docs.example.com")
 
 Pass any PDF URL directly — S3 links, CDN URLs, direct `.pdf` links — and the API automatically detects and extracts text using pdfplumber (text-layer) with RapidOCR fallback for scanned documents. No special parameters needed.
 
+#### Chunk a local file (PDF, MD, TXT, YAML, JSON)
+
+In local-fetch mode (default), the file is parsed on **your machine** using your own CPU — no heavy PDF processing on our server. The extracted text is sent to our server for chunking only.
+
+```bash
+# Install pdfplumber for local PDF parsing
+pip install scrapedatshi[pdf]
+# or: pip install pdfplumber
+```
+
+```python
+result = client.pipeline.chunk_file("./docs/manual.pdf")
+print(f"Got {result.total_chunks} chunks from {result.source}")
+print(f"Cost: ${result.credits_used:.4f}")  # billed at local rate ($0.0020)
+```
+
+**Fetch mode for files:**
+
+| Mode | Who parses the file | OCR support | Rate |
+|---|---|---|---|
+| `local` (default) | Your machine | Text layer only (no OCR) | $0.0020 |
+| `server` | Our server | Text layer + RapidOCR fallback | $0.0040 |
+
+Use `fetch_mode="server"` for scanned/image-only PDFs that need OCR:
+
+```python
+client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
+result = client.pipeline.chunk_file("./scanned_report.pdf")  # OCR included
+```
+
 ---
 
 ### Query Your Vector Database
