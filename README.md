@@ -143,13 +143,7 @@ Pass any PDF URL directly — S3 links, CDN URLs, direct `.pdf` links — and th
 
 #### Chunk a local file (PDF, MD, TXT, YAML, JSON)
 
-In local-fetch mode (default), the file is parsed on **your machine** using your own CPU — no heavy PDF processing on our server. The extracted text is sent to our server for chunking only.
-
-```bash
-# Install pdfplumber for local PDF parsing
-pip install scrapedatshi[pdf]
-# or: pip install pdfplumber
-```
+In local-fetch mode (default), the file is parsed on **your machine** using your own CPU — no heavy PDF processing on our server. The extracted text is sent to our server for chunking only. PDF support is included with the standard install.
 
 ```python
 result = client.pipeline.chunk_file("./docs/manual.pdf")
