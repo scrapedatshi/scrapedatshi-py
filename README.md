@@ -118,6 +118,61 @@ result = client.pipeline.chunk_url("https://docs.example.com")
 
 ---
 
+## Authenticated Scraping (v0.10.0+)
+
+For pages behind a login wall, you can pass your session cookies and/or custom headers directly to any fetch method. Credentials are **only sent to URLs within the permitted domain scope** — they are never leaked to external domains.
+
+### Single URL
+
+```python
+# Pass your browser session cookie
+result = client.pipeline.chunk_url(
+    "https://internal.company.com/wiki/api-docs",
+    cookies={"session": "abc123", "csrf": "xyz"},
+    headers={"Authorization": "Bearer eyJ..."},
+)
+
+# Full pipeline with authentication
+result = client.pipeline.sync(
+    url="https://internal.company.com/wiki/api-docs",
+    cookies={"session": "abc123"},
+    embedding_provider="openai",
+    embedding_api_key="sk-...",
+    vector_db="pinecone",
+    vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+)
+```
+
+### Crawl with Authentication
+
+```python
+# Authenticated sitemap crawl — cookies stay on your machine
+result = client.pipeline.crawl(
+    "https://internal.company.com",
+    cookies={"session": "abc123"},
+    headers={"Authorization": "Bearer eyJ..."},
+    max_pages=20,
+)
+
+# Spider crawl with subdomain scope
+# Also crawls wiki.company.com, docs.company.com, etc.
+result = client.pipeline.crawl(
+    "https://company.com",
+    crawl_mode="spider",
+    cookies={"session": "abc123"},
+    allow_subdomains=True,   # safe: multi-part TLDs (.co.uk) handled correctly
+    max_pages=30,
+)
+```
+
+**Security model:**
+- Cookies and headers are **only sent to URLs within the permitted domain scope** — never to external domains discovered during crawling
+- `allow_subdomains=False` (default): only the exact hostname receives credentials
+- `allow_subdomains=True`: credentials are shared with subdomains of the root domain (e.g. `wiki.company.com` when root is `company.com`). Multi-part TLDs (`.co.uk`, `.com.br`) are handled safely.
+- Credentials are **never forwarded to the scrapedatshi server** — they stay on your machine
+
+---
+
 ## Pipeline Methods
 
 ### Chunk to JSON

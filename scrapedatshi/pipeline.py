@@ -21,13 +21,19 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import re
+import time
 import warnings
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin, urlparse
+from xml.etree import ElementTree
 
 if TYPE_CHECKING:
     from scrapedatshi.client import ScrapedatshiClient
 
+from scrapedatshi._domain_utils import _is_matching_domain_scope
 from scrapedatshi._file_parser import _extract_file_text_locally, _guess_source_type
 from scrapedatshi.models import (
     AutoRagResult,
@@ -89,6 +95,8 @@ class PipelineNamespace:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        cookies: dict | None = None,
+        headers: dict | None = None,
     ) -> ChunkResult:
         """
         Scrape a URL, chunk the content, and return structured JSON chunks.
@@ -169,7 +177,9 @@ class PipelineNamespace:
 
         # Local-fetch mode (default): fetch URL on the caller's machine, submit HTML
         if self._client.fetch_mode == "local":
-            html = self._client._fetch_url_locally(url)
+            html = self._client._fetch_url_locally(
+                url, cookies=cookies, extra_headers=headers
+            )
             payload["html"] = html
 
         data = self._client._post("/v1/rag-chunk", json=payload)
@@ -202,6 +212,8 @@ class PipelineNamespace:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        cookies: dict | None = None,
+        headers: dict | None = None,
     ) -> ChunkResult:
         """Async version of :meth:`chunk_url`."""
         payload: dict = {"url": url}
@@ -224,7 +236,9 @@ class PipelineNamespace:
 
         # Local-fetch mode (default): fetch URL on the caller's machine, submit HTML
         if self._client.fetch_mode == "local":
-            html = await self._client._fetch_url_locally_async(url)
+            html = await self._client._fetch_url_locally_async(
+                url, cookies=cookies, extra_headers=headers
+            )
             payload["html"] = html
 
         data = await self._client._post_async("/v1/rag-chunk", json=payload)
@@ -444,6 +458,9 @@ class PipelineNamespace:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        cookies: dict | None = None,
+        headers: dict | None = None,
+        allow_subdomains: bool = False,
     ) -> CrawlChunkResult:
         """
         Crawl a website, chunk all pages, and return structured JSON.
@@ -454,9 +471,18 @@ class PipelineNamespace:
             - ``"spider"``: Follows ``<a href>`` links from the root URL.
               Works on any website — no sitemap required. More compute-intensive.
 
+        In local-fetch mode (default), the crawl runs on the caller's machine.
+        Each page is fetched using the caller's IP address and submitted to the
+        server for chunking. Cookies and headers are only sent to URLs within
+        the permitted domain scope — preventing credential leakage to external
+        domains.
+
+        In server-fetch mode (``fetch_mode="server"``), the server performs the
+        crawl. ``cookies`` and ``headers`` are not forwarded to the server.
+
         Args:
             url: The root domain or sitemap URL to crawl.
-            max_pages: Maximum number of pages to crawl.
+            max_pages: Maximum number of pages to crawl (default: 50 for local mode).
                 Sitemap mode: up to 200 pages (server hard cap).
                 Spider mode: up to 200 pages (BFS link-following — more compute-intensive).
                 Defaults to the server's recommended value if not specified.
@@ -465,13 +491,27 @@ class PipelineNamespace:
             include_pattern: Only crawl URLs containing this substring (e.g. ``"/docs/"``).
             exclude_pattern: Skip URLs containing this substring (e.g. ``"/blog/"``).
             js_render: If True, uses a headless browser to render JS before scraping.
-                Adds a surcharge per page fetched.
+                Adds a surcharge per page fetched. In local-fetch mode, this
+                automatically falls back to server-fetch mode (JS rendering requires
+                Playwright on the server).
             contextual_retrieval: Enable RAG 2.0 contextual enrichment.
                 Adds a surcharge per URL crawled.
             llm_provider: LLM provider for contextual retrieval.
                 See :data:`scrapedatshi.providers.LLM_PROVIDERS` for supported providers.
             llm_api_key: API key for the LLM provider.
             llm_model: Model name.
+            cookies: Optional dict of cookies to include with every page request
+                (e.g. ``{"session": "abc123"}``). Only sent to URLs within the
+                permitted domain scope — never leaked to external domains.
+                Only used in local-fetch mode.
+            headers: Optional dict of additional request headers (e.g.
+                ``{"Authorization": "Bearer eyJ..."}``). Same domain-isolation
+                rules apply as ``cookies``. Only used in local-fetch mode.
+            allow_subdomains: If True, also crawl subdomains of the root domain
+                (e.g. ``wiki.company.com`` when root is ``company.com``).
+                Cookies and headers are shared across all subdomains within scope.
+                Multi-part TLDs (.co.uk, .com.br) are handled safely.
+                Default: False (exact domain match only).
 
         Returns:
             :class:`~scrapedatshi.models.CrawlChunkResult`
@@ -492,7 +532,52 @@ class PipelineNamespace:
                 max_pages=5,
                 include_pattern="/docs/",
             )
+
+            # Authenticated crawl — cookies stay on your machine
+            result = client.pipeline.crawl(
+                "https://internal.company.com",
+                cookies={"session": "abc123"},
+                headers={"Authorization": "Bearer eyJ..."},
+                max_pages=20,
+            )
+
+            # Subdomain scope — also crawls wiki.company.com, docs.company.com
+            result = client.pipeline.crawl(
+                "https://company.com",
+                cookies={"session": "abc123"},
+                allow_subdomains=True,
+                max_pages=30,
+            )
         """
+        # js_render in local mode requires server-side Playwright — fall back to server fetch
+        use_local = self._client.fetch_mode == "local" and not js_render
+        if self._client.fetch_mode == "local" and js_render:
+            warnings.warn(
+                "crawl(): js_render=True requires server-side Playwright. "
+                "Falling back to server-fetch mode for this crawl. "
+                "Cookies and headers will NOT be forwarded to the server.",
+                stacklevel=2,
+            )
+
+        if use_local:
+            return _crawl_locally(
+                client=self._client,
+                url=url,
+                crawl_mode=crawl_mode,
+                max_pages=max_pages if max_pages is not None else 50,
+                selector=selector,
+                include_pattern=include_pattern,
+                exclude_pattern=exclude_pattern,
+                contextual_retrieval=contextual_retrieval,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model=llm_model,
+                cookies=cookies,
+                headers=headers,
+                allow_subdomains=allow_subdomains,
+            )
+
+        # Server-fetch mode (or js_render fallback): delegate to /v1/crawl-chunk
         payload: dict = {"url": url, "crawl_mode": crawl_mode}
         if max_pages is not None:
             payload["max_pages"] = max_pages
@@ -546,8 +631,40 @@ class PipelineNamespace:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        cookies: dict | None = None,
+        headers: dict | None = None,
+        allow_subdomains: bool = False,
     ) -> CrawlChunkResult:
         """Async version of :meth:`crawl`."""
+        # js_render in local mode requires server-side Playwright — fall back to server fetch
+        use_local = self._client.fetch_mode == "local" and not js_render
+        if self._client.fetch_mode == "local" and js_render:
+            warnings.warn(
+                "crawl_async(): js_render=True requires server-side Playwright. "
+                "Falling back to server-fetch mode for this crawl. "
+                "Cookies and headers will NOT be forwarded to the server.",
+                stacklevel=2,
+            )
+
+        if use_local:
+            return await _crawl_locally_async(
+                client=self._client,
+                url=url,
+                crawl_mode=crawl_mode,
+                max_pages=max_pages if max_pages is not None else 50,
+                selector=selector,
+                include_pattern=include_pattern,
+                exclude_pattern=exclude_pattern,
+                contextual_retrieval=contextual_retrieval,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model=llm_model,
+                cookies=cookies,
+                headers=headers,
+                allow_subdomains=allow_subdomains,
+            )
+
+        # Server-fetch mode (or js_render fallback): delegate to /v1/crawl-chunk
         payload: dict = {"url": url, "crawl_mode": crawl_mode}
         if max_pages is not None:
             payload["max_pages"] = max_pages
@@ -606,6 +723,8 @@ class PipelineNamespace:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        cookies: dict | None = None,
+        headers: dict | None = None,
     ) -> SyncResult:
         """
         Full pipeline: scrape a URL, embed chunks, and inject into a vector DB.
@@ -649,6 +768,10 @@ class PipelineNamespace:
             llm_model: Model name for the LLM provider. Required when
                 ``contextual_retrieval=True``. Check your provider's documentation
                 for available models.
+            cookies: Optional dict of cookies to include with the page request
+                (e.g. ``{"session": "abc123"}``). Only used in local-fetch mode.
+            headers: Optional dict of additional request headers (e.g.
+                ``{"Authorization": "Bearer eyJ..."}``). Only used in local-fetch mode.
 
         Returns:
             :class:`~scrapedatshi.models.SyncResult`
@@ -670,6 +793,16 @@ class PipelineNamespace:
             )
             print(f"Upserted {result.vectors_upserted} vectors")
             print(f"Cost: ${result.credits_used:.4f}")
+
+            # Authenticated sync — fetch the page with your session cookie
+            result = client.pipeline.sync(
+                url="https://internal.company.com/wiki/api-docs",
+                cookies={"session": "abc123"},
+                embedding_provider="openai",
+                embedding_api_key="sk-...",
+                vector_db="pinecone",
+                vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+            )
         """
         embedding: dict = {"provider": embedding_provider, "api_key": embedding_api_key}
         if embedding_model:
@@ -696,6 +829,13 @@ class PipelineNamespace:
                 payload["llm_api_key"] = llm_api_key
             if llm_model:
                 payload["llm_model"] = llm_model
+
+        # Local-fetch mode (default): fetch URL on the caller's machine, submit HTML
+        if self._client.fetch_mode == "local":
+            html = self._client._fetch_url_locally(
+                url, cookies=cookies, extra_headers=headers
+            )
+            payload["html"] = html
 
         data = self._client._post("/v1/sync", json=payload)
         return SyncResult(
@@ -731,6 +871,8 @@ class PipelineNamespace:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        cookies: dict | None = None,
+        headers: dict | None = None,
     ) -> SyncResult:
         """Async version of :meth:`sync`."""
         embedding: dict = {"provider": embedding_provider, "api_key": embedding_api_key}
@@ -758,6 +900,13 @@ class PipelineNamespace:
                 payload["llm_api_key"] = llm_api_key
             if llm_model:
                 payload["llm_model"] = llm_model
+
+        # Local-fetch mode (default): fetch URL on the caller's machine, submit HTML
+        if self._client.fetch_mode == "local":
+            html = await self._client._fetch_url_locally_async(
+                url, cookies=cookies, extra_headers=headers
+            )
+            payload["html"] = html
 
         data = await self._client._post_async("/v1/sync", json=payload)
         return SyncResult(
@@ -1900,6 +2049,597 @@ class PipelineNamespace:
             credits_remaining=float(data.get("credits_remaining", 0.0)),
             llm_error=data.get("llm_error"),
         )
+
+
+# ── Local crawl helpers ───────────────────────────────────────────────────────
+
+# File extensions to skip during local crawls (same as server-side filter_urls)
+_SKIP_EXTENSIONS = (
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".gifv",
+    ".webp",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".svg",
+    ".css",
+    ".js",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".xml",
+    ".json",
+    ".txt",
+)
+
+# Politeness delay between page fetches (seconds)
+_CRAWL_POLITENESS_DELAY = 0.5
+
+
+class _LinkHarvester(HTMLParser):
+    """Minimal HTML parser that extracts href values from <a> tags."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if tag == "a":
+            for attr, value in attrs:
+                if attr == "href" and value:
+                    self.links.append(value)
+
+
+def _parse_sitemap_urls(text: str) -> list[str]:
+    """
+    Parse a sitemap XML string and return all <loc> URLs.
+    Handles both <urlset> (regular) and <sitemapindex> (nested) formats.
+    Falls back to regex extraction if XML parsing fails.
+    """
+    try:
+        # Strip xmlns attributes to simplify namespace-safe traversal
+        text_clean = re.sub(r"\s+xmlns[^>]*", "", text)
+        root = ElementTree.fromstring(text_clean)
+        return [loc.text.strip() for loc in root.findall(".//loc") if loc.text]
+    except ElementTree.ParseError:
+        # Fallback: regex extraction
+        return re.findall(r"<loc>(.*?)</loc>", text)
+
+
+def _fetch_sitemap_text(root_url: str) -> str | None:
+    """
+    Synchronously fetch a sitemap from the root domain.
+    Tries /sitemap.xml, /sitemap_index.xml, then robots.txt Sitemap: directive.
+    Returns the raw XML text, or None if nothing found.
+    No credentials are passed — sitemaps are public assets.
+    """
+    import httpx as _httpx
+
+    parsed = urlparse(root_url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    headers = {"User-Agent": "scrapedatshi-py/0.10.0 (+https://scrapedatshi.com/bot)"}
+
+    try:
+        with _httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            for path in ("/sitemap.xml", "/sitemap_index.xml"):
+                try:
+                    resp = client.get(base + path, headers=headers)
+                    if resp.status_code == 200 and (
+                        "<urlset" in resp.text or "<sitemapindex" in resp.text
+                    ):
+                        return resp.text
+                except Exception:
+                    continue
+
+            # Try robots.txt for Sitemap: directive
+            try:
+                resp = client.get(base + "/robots.txt", headers=headers)
+                if resp.status_code == 200:
+                    for line in resp.text.splitlines():
+                        if line.lower().startswith("sitemap:"):
+                            sitemap_url = line.split(":", 1)[1].strip()
+                            try:
+                                resp2 = client.get(sitemap_url, headers=headers)
+                                if resp2.status_code == 200:
+                                    return resp2.text
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return None
+
+
+async def _fetch_sitemap_text_async(root_url: str) -> str | None:
+    """Async version of :func:`_fetch_sitemap_text`."""
+    import httpx as _httpx
+
+    parsed = urlparse(root_url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    headers = {"User-Agent": "scrapedatshi-py/0.10.0 (+https://scrapedatshi.com/bot)"}
+
+    try:
+        async with _httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            for path in ("/sitemap.xml", "/sitemap_index.xml"):
+                try:
+                    resp = await client.get(base + path, headers=headers)
+                    if resp.status_code == 200 and (
+                        "<urlset" in resp.text or "<sitemapindex" in resp.text
+                    ):
+                        return resp.text
+                except Exception:
+                    continue
+
+            try:
+                resp = await client.get(base + "/robots.txt", headers=headers)
+                if resp.status_code == 200:
+                    for line in resp.text.splitlines():
+                        if line.lower().startswith("sitemap:"):
+                            sitemap_url = line.split(":", 1)[1].strip()
+                            try:
+                                resp2 = await client.get(sitemap_url, headers=headers)
+                                if resp2.status_code == 200:
+                                    return resp2.text
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return None
+
+
+def _filter_crawl_urls(
+    urls: list[str],
+    root_url: str,
+    include_pattern: str | None,
+    exclude_pattern: str | None,
+    max_pages: int,
+    allow_subdomains: bool,
+) -> list[str]:
+    """Filter a list of discovered URLs for local crawl."""
+    seen: set[str] = set()
+    filtered: list[str] = []
+
+    for url in urls:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+
+        # Domain scope check
+        if not _is_matching_domain_scope(url, root_url, allow_subdomains):
+            continue
+
+        # Pattern filters
+        if include_pattern and include_pattern not in url:
+            continue
+        if exclude_pattern and exclude_pattern in url:
+            continue
+
+        # Skip non-content file types
+        if any(url.lower().endswith(ext) for ext in _SKIP_EXTENSIONS):
+            continue
+
+        filtered.append(url)
+        if len(filtered) >= max_pages:
+            break
+
+    return filtered
+
+
+def _chunk_page_locally(
+    client: "ScrapedatshiClient",
+    page_url: str,
+    html: str,
+    selector: str | None,
+    chunk_size: int,
+    overlap: int,
+    contextual_retrieval: bool,
+    llm_provider: str | None,
+    llm_api_key: str | None,
+    llm_model: str | None,
+) -> tuple[list[dict], float, float]:
+    """
+    Submit pre-fetched HTML to /v1/rag-chunk and return (chunks, credits_used, credits_remaining).
+    """
+    payload: dict = {"url": page_url, "html": html}
+    if selector:
+        payload["selector"] = selector
+    if chunk_size != 512:
+        payload["chunk_size"] = chunk_size
+    if overlap != 50:
+        payload["overlap"] = overlap
+    if contextual_retrieval:
+        payload["contextual_retrieval"] = True
+        if llm_provider:
+            payload["llm_provider"] = llm_provider
+        if llm_api_key:
+            payload["llm_api_key"] = llm_api_key
+        if llm_model:
+            payload["llm_model"] = llm_model
+
+    try:
+        data = client._post("/v1/rag-chunk", json=payload)
+        return (
+            data.get("chunks", []),
+            float(data.get("credits_used", 0.0)),
+            float(data.get("credits_remaining", 0.0)),
+        )
+    except Exception:
+        return [], 0.0, 0.0
+
+
+async def _chunk_page_locally_async(
+    client: "ScrapedatshiClient",
+    page_url: str,
+    html: str,
+    selector: str | None,
+    chunk_size: int,
+    overlap: int,
+    contextual_retrieval: bool,
+    llm_provider: str | None,
+    llm_api_key: str | None,
+    llm_model: str | None,
+) -> tuple[list[dict], float, float]:
+    """Async version of :func:`_chunk_page_locally`."""
+    payload: dict = {"url": page_url, "html": html}
+    if selector:
+        payload["selector"] = selector
+    if chunk_size != 512:
+        payload["chunk_size"] = chunk_size
+    if overlap != 50:
+        payload["overlap"] = overlap
+    if contextual_retrieval:
+        payload["contextual_retrieval"] = True
+        if llm_provider:
+            payload["llm_provider"] = llm_provider
+        if llm_api_key:
+            payload["llm_api_key"] = llm_api_key
+        if llm_model:
+            payload["llm_model"] = llm_model
+
+    try:
+        data = await client._post_async("/v1/rag-chunk", json=payload)
+        return (
+            data.get("chunks", []),
+            float(data.get("credits_used", 0.0)),
+            float(data.get("credits_remaining", 0.0)),
+        )
+    except Exception:
+        return [], 0.0, 0.0
+
+
+def _crawl_locally(
+    *,
+    client: "ScrapedatshiClient",
+    url: str,
+    crawl_mode: str,
+    max_pages: int,
+    selector: str | None,
+    include_pattern: str | None,
+    exclude_pattern: str | None,
+    contextual_retrieval: bool,
+    llm_provider: str | None,
+    llm_api_key: str | None,
+    llm_model: str | None,
+    cookies: dict | None,
+    headers: dict | None,
+    allow_subdomains: bool,
+) -> "CrawlChunkResult":
+    """
+    Synchronous local crawl loop.
+
+    Discovers URLs (sitemap or spider BFS), fetches each page on the caller's
+    machine, and submits HTML to /v1/rag-chunk for chunking.
+
+    Credential shield: cookies and headers are only sent to URLs within the
+    permitted domain scope (exact match by default, subdomains if allow_subdomains=True).
+    """
+    all_chunks: list[dict] = []
+    total_credits_used: float = 0.0
+    last_credits_remaining: float = 0.0
+    pages_crawled: int = 0
+
+    if crawl_mode == "sitemap":
+        # ── Sitemap mode ──────────────────────────────────────────────────────
+        sitemap_text = _fetch_sitemap_text(url)
+        if sitemap_text:
+            discovered = _parse_sitemap_urls(sitemap_text)
+        else:
+            discovered = [url]  # fallback: just the root URL
+
+        urls_to_crawl = _filter_crawl_urls(
+            discovered,
+            url,
+            include_pattern,
+            exclude_pattern,
+            max_pages,
+            allow_subdomains,
+        )
+
+        for page_url in urls_to_crawl:
+            # Credential shield: only send creds to in-scope URLs
+            send_creds = _is_matching_domain_scope(page_url, url, allow_subdomains)
+            try:
+                html = client._fetch_url_locally(
+                    page_url,
+                    cookies=cookies if send_creds else None,
+                    extra_headers=headers if send_creds else None,
+                )
+            except Exception:
+                time.sleep(_CRAWL_POLITENESS_DELAY)
+                continue
+
+            chunks, credits_used, credits_remaining = _chunk_page_locally(
+                client=client,
+                page_url=page_url,
+                html=html,
+                selector=selector,
+                chunk_size=512,
+                overlap=50,
+                contextual_retrieval=contextual_retrieval,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model=llm_model,
+            )
+            all_chunks.extend(chunks)
+            total_credits_used += credits_used
+            last_credits_remaining = credits_remaining
+            pages_crawled += 1
+            time.sleep(_CRAWL_POLITENESS_DELAY)
+
+    else:
+        # ── Spider mode (BFS) ─────────────────────────────────────────────────
+        visited: set[str] = set()
+        queue: list[str] = [url]
+
+        while queue and pages_crawled < max_pages:
+            page_url = queue.pop(0)
+
+            # Normalize: strip fragment, trailing slash
+            normalized = page_url.split("#")[0].rstrip("/")
+            if not normalized:
+                continue
+            if normalized in visited:
+                continue
+
+            # Domain scope check for BFS queue
+            if not _is_matching_domain_scope(normalized, url, allow_subdomains):
+                continue
+
+            # Pattern filters
+            if include_pattern and include_pattern not in normalized:
+                continue
+            if exclude_pattern and exclude_pattern in normalized:
+                continue
+
+            # Skip non-content file types
+            if any(normalized.lower().endswith(ext) for ext in _SKIP_EXTENSIONS):
+                continue
+
+            visited.add(normalized)
+
+            # Credential shield: only send creds to in-scope URLs
+            send_creds = _is_matching_domain_scope(normalized, url, allow_subdomains)
+            try:
+                html = client._fetch_url_locally(
+                    normalized,
+                    cookies=cookies if send_creds else None,
+                    extra_headers=headers if send_creds else None,
+                )
+            except Exception:
+                time.sleep(_CRAWL_POLITENESS_DELAY)
+                continue
+
+            # Extract links for BFS queue
+            harvester = _LinkHarvester()
+            harvester.feed(html)
+            for href in harvester.links:
+                absolute = urljoin(normalized, href).split("#")[0].rstrip("/")
+                if (
+                    absolute
+                    and absolute not in visited
+                    and absolute not in queue
+                    and _is_matching_domain_scope(absolute, url, allow_subdomains)
+                    and not any(
+                        absolute.lower().endswith(ext) for ext in _SKIP_EXTENSIONS
+                    )
+                ):
+                    queue.append(absolute)
+
+            chunks, credits_used, credits_remaining = _chunk_page_locally(
+                client=client,
+                page_url=normalized,
+                html=html,
+                selector=selector,
+                chunk_size=512,
+                overlap=50,
+                contextual_retrieval=contextual_retrieval,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model=llm_model,
+            )
+            all_chunks.extend(chunks)
+            total_credits_used += credits_used
+            last_credits_remaining = credits_remaining
+            pages_crawled += 1
+            time.sleep(_CRAWL_POLITENESS_DELAY)
+
+    return CrawlChunkResult(
+        chunks=all_chunks,
+        total_chunks=len(all_chunks),
+        pages_crawled=pages_crawled,
+        source_url=url,
+        contextual_retrieval_used=contextual_retrieval,
+        contextual_retrieval_error=None,
+        credits_used=total_credits_used,
+        credits_remaining=last_credits_remaining,
+    )
+
+
+async def _crawl_locally_async(
+    *,
+    client: "ScrapedatshiClient",
+    url: str,
+    crawl_mode: str,
+    max_pages: int,
+    selector: str | None,
+    include_pattern: str | None,
+    exclude_pattern: str | None,
+    contextual_retrieval: bool,
+    llm_provider: str | None,
+    llm_api_key: str | None,
+    llm_model: str | None,
+    cookies: dict | None,
+    headers: dict | None,
+    allow_subdomains: bool,
+) -> "CrawlChunkResult":
+    """
+    Async local crawl loop. See :func:`_crawl_locally` for full documentation.
+    """
+    import asyncio as _asyncio
+
+    all_chunks: list[dict] = []
+    total_credits_used: float = 0.0
+    last_credits_remaining: float = 0.0
+    pages_crawled: int = 0
+
+    if crawl_mode == "sitemap":
+        # ── Sitemap mode ──────────────────────────────────────────────────────
+        sitemap_text = await _fetch_sitemap_text_async(url)
+        if sitemap_text:
+            discovered = _parse_sitemap_urls(sitemap_text)
+        else:
+            discovered = [url]
+
+        urls_to_crawl = _filter_crawl_urls(
+            discovered,
+            url,
+            include_pattern,
+            exclude_pattern,
+            max_pages,
+            allow_subdomains,
+        )
+
+        for page_url in urls_to_crawl:
+            send_creds = _is_matching_domain_scope(page_url, url, allow_subdomains)
+            try:
+                html = await client._fetch_url_locally_async(
+                    page_url,
+                    cookies=cookies if send_creds else None,
+                    extra_headers=headers if send_creds else None,
+                )
+            except Exception:
+                await _asyncio.sleep(_CRAWL_POLITENESS_DELAY)
+                continue
+
+            chunks, credits_used, credits_remaining = await _chunk_page_locally_async(
+                client=client,
+                page_url=page_url,
+                html=html,
+                selector=selector,
+                chunk_size=512,
+                overlap=50,
+                contextual_retrieval=contextual_retrieval,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model=llm_model,
+            )
+            all_chunks.extend(chunks)
+            total_credits_used += credits_used
+            last_credits_remaining = credits_remaining
+            pages_crawled += 1
+            await _asyncio.sleep(_CRAWL_POLITENESS_DELAY)
+
+    else:
+        # ── Spider mode (BFS) ─────────────────────────────────────────────────
+        visited: set[str] = set()
+        queue: list[str] = [url]
+
+        while queue and pages_crawled < max_pages:
+            page_url = queue.pop(0)
+
+            normalized = page_url.split("#")[0].rstrip("/")
+            if not normalized:
+                continue
+            if normalized in visited:
+                continue
+
+            if not _is_matching_domain_scope(normalized, url, allow_subdomains):
+                continue
+
+            if include_pattern and include_pattern not in normalized:
+                continue
+            if exclude_pattern and exclude_pattern in normalized:
+                continue
+
+            if any(normalized.lower().endswith(ext) for ext in _SKIP_EXTENSIONS):
+                continue
+
+            visited.add(normalized)
+
+            send_creds = _is_matching_domain_scope(normalized, url, allow_subdomains)
+            try:
+                html = await client._fetch_url_locally_async(
+                    normalized,
+                    cookies=cookies if send_creds else None,
+                    extra_headers=headers if send_creds else None,
+                )
+            except Exception:
+                await _asyncio.sleep(_CRAWL_POLITENESS_DELAY)
+                continue
+
+            # Extract links for BFS queue
+            harvester = _LinkHarvester()
+            harvester.feed(html)
+            for href in harvester.links:
+                absolute = urljoin(normalized, href).split("#")[0].rstrip("/")
+                if (
+                    absolute
+                    and absolute not in visited
+                    and absolute not in queue
+                    and _is_matching_domain_scope(absolute, url, allow_subdomains)
+                    and not any(
+                        absolute.lower().endswith(ext) for ext in _SKIP_EXTENSIONS
+                    )
+                ):
+                    queue.append(absolute)
+
+            chunks, credits_used, credits_remaining = await _chunk_page_locally_async(
+                client=client,
+                page_url=normalized,
+                html=html,
+                selector=selector,
+                chunk_size=512,
+                overlap=50,
+                contextual_retrieval=contextual_retrieval,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model=llm_model,
+            )
+            all_chunks.extend(chunks)
+            total_credits_used += credits_used
+            last_credits_remaining = credits_remaining
+            pages_crawled += 1
+            await _asyncio.sleep(_CRAWL_POLITENESS_DELAY)
+
+    return CrawlChunkResult(
+        chunks=all_chunks,
+        total_chunks=len(all_chunks),
+        pages_crawled=pages_crawled,
+        source_url=url,
+        contextual_retrieval_used=contextual_retrieval,
+        contextual_retrieval_error=None,
+        credits_used=total_credits_used,
+        credits_remaining=last_credits_remaining,
+    )
 
 
 # ── Response parser helpers ───────────────────────────────────────────────────

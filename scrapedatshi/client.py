@@ -127,23 +127,43 @@ class ScrapedatshiClient:
 
     # ── Local URL fetch helpers ───────────────────────────────────────────────
 
-    def _fetch_url_locally(self, url: str) -> str:
+    def _fetch_url_locally(
+        self,
+        url: str,
+        *,
+        cookies: dict | None = None,
+        extra_headers: dict | None = None,
+    ) -> str:
         """
         Fetch a URL synchronously using the caller's machine and IP address.
 
         Returns the raw HTML string.  Used by local-fetch mode (the default).
         The request uses a neutral User-Agent that identifies the SDK.
 
+        Args:
+            url:           The URL to fetch.
+            cookies:       Optional dict of cookies to include (e.g. session tokens
+                           for authenticated scraping).  Only pass cookies for URLs
+                           on the same domain as the root — use
+                           :func:`~scrapedatshi._domain_utils._is_matching_domain_scope`
+                           to verify before calling.
+            extra_headers: Optional dict of additional request headers (e.g.
+                           Authorization tokens).  Same domain-isolation rules apply.
+
         Raises:
             :class:`~scrapedatshi.exceptions.ScrapedatshiError`: On network failure.
             :class:`~scrapedatshi.exceptions.TimeoutError`: If the request times out.
         """
-        headers = {"User-Agent": _LOCAL_FETCH_USER_AGENT}
+        request_headers = {"User-Agent": _LOCAL_FETCH_USER_AGENT}
+        if extra_headers:
+            request_headers.update(extra_headers)
         try:
             with httpx.Client(
                 timeout=_LOCAL_FETCH_TIMEOUT, follow_redirects=True
             ) as client:
-                response = client.get(url, headers=headers)
+                response = client.get(
+                    url, headers=request_headers, cookies=cookies or {}
+                )
                 response.raise_for_status()
                 return response.text
         except httpx.TimeoutException as exc:
@@ -155,16 +175,26 @@ class ScrapedatshiClient:
         except httpx.RequestError as exc:
             raise ScrapedatshiError(f"Local fetch of {url} failed: {exc}") from exc
 
-    async def _fetch_url_locally_async(self, url: str) -> str:
+    async def _fetch_url_locally_async(
+        self,
+        url: str,
+        *,
+        cookies: dict | None = None,
+        extra_headers: dict | None = None,
+    ) -> str:
         """
         Async version of :meth:`_fetch_url_locally`.
         """
-        headers = {"User-Agent": _LOCAL_FETCH_USER_AGENT}
+        request_headers = {"User-Agent": _LOCAL_FETCH_USER_AGENT}
+        if extra_headers:
+            request_headers.update(extra_headers)
         try:
             async with httpx.AsyncClient(
                 timeout=_LOCAL_FETCH_TIMEOUT, follow_redirects=True
             ) as client:
-                response = await client.get(url, headers=headers)
+                response = await client.get(
+                    url, headers=request_headers, cookies=cookies or {}
+                )
                 response.raise_for_status()
                 return response.text
         except httpx.TimeoutException as exc:
