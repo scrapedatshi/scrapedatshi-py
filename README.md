@@ -398,6 +398,74 @@ result = client.pipeline.ingest(
 )
 ```
 
+#### Ingest a folder (bulk import) — v0.11.0+
+
+Bulk-ingest an entire folder of pre-scraped files into your vector database. Supports `.md`, `.txt`, `.json`, `.yaml`, and `.yml`. Automatically handles **Scrapy JSON array exports** — each item in the array is extracted and ingested individually. Includes exponential backoff on rate limits and a configurable per-file delay.
+
+```python
+# Ingest all supported files in a folder
+result = client.pipeline.ingest_folder(
+    folder_path="./scrapy_output/",
+    embedding_provider="openai",
+    embedding_api_key="sk-...",
+    embedding_model="text-embedding-3-small",
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": "pc-...",
+        "index_host": "https://my-index-abc123.svc.pinecone.io",
+    },
+)
+print(f"Processed {result.files_processed} files → {result.vectors_upserted} vectors")
+print(f"Failed: {result.files_failed} files")
+print(f"Cost: ${result.credits_used:.4f}")
+for err in result.errors:
+    print(f"  ✗ {err['file']} — {err['error']}")
+
+# Scrapy JSON dump — each item in the array is ingested individually.
+# Items with 'text', 'content', 'html', 'body', 'markdown', or 'description'
+# fields are automatically detected and extracted.
+result = client.pipeline.ingest_folder(
+    folder_path="./",
+    file_extensions=[".json"],   # only process JSON files
+    batch_delay=1.0,             # 1s pause between files (rate limit safety)
+    embedding_provider="openai",
+    embedding_api_key="sk-...",
+    embedding_model="text-embedding-3-small",
+    vector_db="pinecone",
+    vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+)
+
+# Async version
+result = await client.pipeline.ingest_folder_async(
+    folder_path="./docs/",
+    embedding_provider="openai",
+    embedding_api_key="sk-...",
+    embedding_model="text-embedding-3-small",
+    vector_db="qdrant",
+    vector_db_config={
+        "url": "https://your-cluster.qdrant.io",
+        "collection_name": "docs",
+        "api_key": "qdrant-key",
+    },
+)
+```
+
+**`IngestFolderResult` model:**
+
+```python
+result.files_processed      # int — number of files successfully ingested
+result.files_failed         # int — number of files that failed
+result.total_chunks         # int — total chunks created across all files
+result.vectors_upserted     # int — total vectors upserted
+result.embedding_provider   # str
+result.vector_db_provider   # str
+result.credits_used         # float
+result.credits_remaining    # float
+result.errors               # list[dict] — [{"file": "...", "error": "..."}, ...]
+```
+
+**Billing:** $0.0020 / file · $0.0005 / chunk · $0.0030 / chunk injected. Only successfully processed files are billed.
+
 ---
 
 ### Schema Extraction

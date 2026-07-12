@@ -42,6 +42,7 @@ from scrapedatshi.models import (
     ExtractCrawlPageResult,
     ExtractCrawlResult,
     ExtractResult,
+    IngestFolderResult,
     IngestResult,
     InspectVectorDBResult,
     QueryResult,
@@ -922,6 +923,165 @@ class PipelineNamespace:
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
             credits_used=float(data.get("credits_used", 0.0)),
             credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    # ── Full Pipeline — Folder Ingest ────────────────────────────────────────
+
+    def ingest_folder(
+        self,
+        folder_path: str | Path,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        vector_db: str,
+        vector_db_config: dict,
+        embedding_model: str | None = None,
+        embedding_endpoint: str | None = None,
+        chunk_size: int = 512,
+        overlap: int = 50,
+        file_extensions: list[str] | None = None,
+        recursive: bool = True,
+        max_files: int | None = None,
+        batch_delay: float = 0.5,
+        json_text_keys: list[str] | None = None,
+    ) -> IngestFolderResult:
+        """
+        Bulk ingest an entire folder of files — chunk, embed, and inject into a vector DB.
+
+        Designed for users who have pre-scraped content from external tools (Scrapy,
+        Playwright, wget, etc.) and want to embed and inject it into their vector DB.
+
+        Supports ``.md``, ``.txt``, ``.json``, ``.yaml``, and ``.yml`` files.
+        For JSON files, automatically detects Scrapy/crawler array exports and
+        extracts text from each item individually.
+
+        All processing runs on your machine — no server-side crawling. Rate limit
+        errors from your embedding provider are handled automatically with
+        exponential backoff.
+
+        Args:
+            folder_path: Path to the folder containing files to ingest.
+            embedding_provider: Embedding provider key (e.g. ``"openai"``).
+            embedding_api_key: API key for the embedding provider.
+            vector_db: Vector DB provider key (e.g. ``"pinecone"``).
+            vector_db_config: Provider-specific configuration dict.
+            embedding_model: Model name for the embedding provider.
+            embedding_endpoint: Public endpoint URL for Ollama (ngrok URL).
+            chunk_size: Target token count per chunk (default: 512).
+            overlap: Token overlap between consecutive chunks (default: 50).
+            file_extensions: File extensions to process. Default: ``[".md", ".txt", ".json", ".yaml", ".yml"]``.
+            recursive: If True, recurse into subdirectories (default: True).
+            max_files: Maximum number of files to process. Default: unlimited.
+            batch_delay: Seconds to wait between files (default: 0.5). Increase
+                to avoid hitting embedding provider rate limits.
+            json_text_keys: Keys to look for when extracting text from JSON items.
+                Default: ``["text", "content", "html", "body", "markdown", "description"]``.
+                Used for Scrapy/crawler JSON array exports.
+
+        Returns:
+            :class:`~scrapedatshi.models.IngestFolderResult`
+
+        Raises:
+            :class:`~scrapedatshi.exceptions.InsufficientCreditsError`: Balance too low.
+
+        Example::
+
+            # Ingest a Scrapy output folder
+            result = client.pipeline.ingest_folder(
+                folder_path="./scrapy_output/",
+                embedding_provider="openai",
+                embedding_api_key="sk-...",
+                embedding_model="text-embedding-3-small",
+                vector_db="pinecone",
+                vector_db_config={
+                    "api_key": "pc-...",
+                    "index_host": "https://my-index-abc123.svc.pinecone.io",
+                },
+            )
+            print(f"Processed {result.files_processed} files → {result.vectors_upserted} vectors")
+            print(f"Cost: ${result.credits_used:.4f}")
+            for err in result.errors:
+                print(f"  Failed: {err['file']} — {err['error']}")
+
+            # Ingest a single large Scrapy JSON dump (array of items)
+            result = client.pipeline.ingest_folder(
+                folder_path="./",
+                file_extensions=[".json"],
+                embedding_provider="openai",
+                embedding_api_key="sk-...",
+                embedding_model="text-embedding-3-small",
+                vector_db="qdrant",
+                vector_db_config={"url": "https://...", "collection_name": "docs"},
+                batch_delay=1.0,  # slower = safer for large batches
+            )
+        """
+        path = Path(folder_path)
+        if not path.is_dir():
+            raise ValueError(f"folder_path must be a directory: {folder_path}")
+
+        exts = tuple(file_extensions or list(_INGEST_FOLDER_EXTENSIONS))
+        keys = tuple(json_text_keys or list(_JSON_TEXT_KEYS))
+
+        return _ingest_folder_locally(
+            client=self._client,
+            folder_path=path,
+            embedding_provider=embedding_provider,
+            embedding_api_key=embedding_api_key,
+            vector_db=vector_db,
+            vector_db_config=vector_db_config,
+            embedding_model=embedding_model,
+            embedding_endpoint=embedding_endpoint,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            file_extensions=exts,
+            recursive=recursive,
+            max_files=max_files,
+            batch_delay=batch_delay,
+            json_text_keys=keys,
+        )
+
+    async def ingest_folder_async(
+        self,
+        folder_path: str | Path,
+        *,
+        embedding_provider: str,
+        embedding_api_key: str,
+        vector_db: str,
+        vector_db_config: dict,
+        embedding_model: str | None = None,
+        embedding_endpoint: str | None = None,
+        chunk_size: int = 512,
+        overlap: int = 50,
+        file_extensions: list[str] | None = None,
+        recursive: bool = True,
+        max_files: int | None = None,
+        batch_delay: float = 0.5,
+        json_text_keys: list[str] | None = None,
+    ) -> IngestFolderResult:
+        """Async version of :meth:`ingest_folder`."""
+        path = Path(folder_path)
+        if not path.is_dir():
+            raise ValueError(f"folder_path must be a directory: {folder_path}")
+
+        exts = tuple(file_extensions or list(_INGEST_FOLDER_EXTENSIONS))
+        keys = tuple(json_text_keys or list(_JSON_TEXT_KEYS))
+
+        return await _ingest_folder_locally_async(
+            client=self._client,
+            folder_path=path,
+            embedding_provider=embedding_provider,
+            embedding_api_key=embedding_api_key,
+            vector_db=vector_db,
+            vector_db_config=vector_db_config,
+            embedding_model=embedding_model,
+            embedding_endpoint=embedding_endpoint,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            file_extensions=exts,
+            recursive=recursive,
+            max_files=max_files,
+            batch_delay=batch_delay,
+            json_text_keys=keys,
         )
 
     # ── Full Pipeline — File Ingest ───────────────────────────────────────────
@@ -2639,6 +2799,438 @@ async def _crawl_locally_async(
         contextual_retrieval_error=None,
         credits_used=total_credits_used,
         credits_remaining=last_credits_remaining,
+    )
+
+
+# ── Folder ingestion helpers ──────────────────────────────────────────────────
+
+# Supported file extensions for ingest_folder()
+_INGEST_FOLDER_EXTENSIONS = (".md", ".txt", ".json", ".yaml", ".yml")
+
+# Keys to look for when extracting text from a JSON item (Scrapy/crawler output)
+_JSON_TEXT_KEYS = ("text", "content", "html", "body", "markdown", "description")
+
+# Max backoff sleep in seconds for 429 rate limit handling
+_MAX_BACKOFF_SLEEP = 60.0
+
+
+def _extract_text_from_file(
+    path: Path, json_text_keys: tuple[str, ...]
+) -> list[tuple[str, str]]:
+    """
+    Extract (text, source_url) pairs from a single file.
+
+    For JSON files, detects whether the file is:
+    - A list of crawler items (e.g. Scrapy output) → yields one entry per item
+    - A single object → yields one entry for the whole file
+    - A plain string → yields one entry
+
+    Returns a list of (text, source_url) tuples.
+    """
+    import json as _json
+
+    ext = path.suffix.lower()
+    source_url = f"file://{path.name}"
+
+    if ext == ".json":
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            data = _json.loads(raw)
+        except Exception:
+            # Fallback: treat as plain text
+            return [(path.read_text(encoding="utf-8", errors="replace"), source_url)]
+
+        if isinstance(data, list):
+            # Scrapy/crawler array — extract text from each item
+            results: list[tuple[str, str]] = []
+            for item in data:
+                if isinstance(item, dict):
+                    # Try known text keys in priority order
+                    text = None
+                    for key in json_text_keys:
+                        val = item.get(key)
+                        if val and isinstance(val, str) and val.strip():
+                            text = val
+                            break
+                    if text is None:
+                        # Fallback: JSON-encode the whole item
+                        text = _json.dumps(item, ensure_ascii=False)
+                    item_url = item.get("url") or item.get("link") or source_url
+                    results.append((text, str(item_url)))
+                elif isinstance(item, str) and item.strip():
+                    results.append((item, source_url))
+            return results if results else [(raw, source_url)]
+
+        elif isinstance(data, dict):
+            # Single object — try text keys, fallback to full JSON
+            for key in json_text_keys:
+                val = data.get(key)
+                if val and isinstance(val, str) and val.strip():
+                    item_url = data.get("url") or data.get("link") or source_url
+                    return [(val, str(item_url))]
+            return [(_json.dumps(data, ensure_ascii=False, indent=2), source_url)]
+
+        elif isinstance(data, str):
+            return [(data, source_url)]
+
+        return [(raw, source_url)]
+
+    elif ext in (".yaml", ".yml"):
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(data, str):
+                return [(data, source_url)]
+            return [
+                (
+                    yaml.dump(data, default_flow_style=False, allow_unicode=True),
+                    source_url,
+                )
+            ]
+        except Exception:
+            return [(path.read_text(encoding="utf-8", errors="replace"), source_url)]
+
+    else:
+        # .md, .txt — read as-is
+        return [(path.read_text(encoding="utf-8", errors="replace"), source_url)]
+
+
+def _ingest_folder_locally(
+    *,
+    client: "ScrapedatshiClient",
+    folder_path: Path,
+    embedding_provider: str,
+    embedding_api_key: str,
+    vector_db: str,
+    vector_db_config: dict,
+    embedding_model: str | None,
+    embedding_endpoint: str | None,
+    chunk_size: int,
+    overlap: int,
+    file_extensions: tuple[str, ...],
+    recursive: bool,
+    max_files: int | None,
+    batch_delay: float,
+    json_text_keys: tuple[str, ...],
+) -> "IngestFolderResult":
+    """
+    Synchronous folder ingestion loop.
+
+    Iterates files, extracts text (with JSON array detection), chunks via
+    /v1/process-text, then embeds + injects via /v1/ingest. Includes
+    exponential backoff on 429 rate limit errors.
+    """
+    import json as _json
+    from scrapedatshi.exceptions import RateLimitError, ScrapedatshiError
+
+    files_processed = 0
+    files_failed = 0
+    total_chunks = 0
+    vectors_upserted = 0
+    total_credits_used = 0.0
+    last_credits_remaining = 0.0
+    errors: list[dict] = []
+
+    # Collect files
+    if recursive:
+        all_files = [
+            p
+            for p in folder_path.rglob("*")
+            if p.is_file() and p.suffix.lower() in file_extensions
+        ]
+    else:
+        all_files = [
+            p
+            for p in folder_path.iterdir()
+            if p.is_file() and p.suffix.lower() in file_extensions
+        ]
+
+    all_files.sort()  # deterministic order
+    if max_files is not None:
+        all_files = all_files[:max_files]
+
+    embedding_cfg = {"provider": embedding_provider, "api_key": embedding_api_key}
+    if embedding_model:
+        embedding_cfg["model"] = embedding_model
+    if embedding_endpoint:
+        embedding_cfg["endpoint"] = embedding_endpoint
+    vdb_cfg = {"provider": vector_db, **vector_db_config}
+
+    for file_path in all_files:
+        try:
+            text_entries = _extract_text_from_file(file_path, json_text_keys)
+        except Exception as exc:
+            files_failed += 1
+            errors.append(
+                {"file": str(file_path), "error": f"Text extraction failed: {exc}"}
+            )
+            continue
+
+        for text, source_url in text_entries:
+            if not text or not text.strip():
+                continue
+
+            # Step 1: Chunk the text via /v1/process-text
+            chunk_payload: dict = {
+                "url": source_url,
+                "text": text,
+                "source_type": _guess_source_type(file_path),
+            }
+            if chunk_size != 512:
+                chunk_payload["chunk_size"] = chunk_size
+            if overlap != 50:
+                chunk_payload["overlap"] = overlap
+
+            backoff = 2.0
+            for attempt in range(5):
+                try:
+                    chunk_data = client._post("/v1/process-text", json=chunk_payload)
+                    break
+                except RateLimitError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(min(backoff, _MAX_BACKOFF_SLEEP))
+                    backoff *= 2
+            else:
+                files_failed += 1
+                errors.append(
+                    {
+                        "file": str(file_path),
+                        "error": "Rate limit exceeded after retries",
+                    }
+                )
+                continue
+
+            chunks = chunk_data.get("chunks", [])
+            if not chunks:
+                continue
+
+            # Step 2: Ingest (embed + inject) via /v1/ingest
+            form_data: dict = {
+                "embedding_config": _json.dumps(embedding_cfg),
+                "vector_db_config": _json.dumps(vdb_cfg),
+            }
+            if chunk_size != 512:
+                form_data["chunk_size"] = str(chunk_size)
+            if overlap != 50:
+                form_data["overlap"] = str(overlap)
+
+            text_bytes = text.encode("utf-8")
+            mime = (
+                "text/markdown" if file_path.suffix.lower() == ".md" else "text/plain"
+            )
+
+            backoff = 2.0
+            for attempt in range(5):
+                try:
+                    ingest_data = client._post(
+                        "/v1/ingest",
+                        files={"files": (file_path.name, text_bytes, mime)},
+                        data=form_data,
+                    )
+                    break
+                except RateLimitError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(min(backoff, _MAX_BACKOFF_SLEEP))
+                    backoff *= 2
+            else:
+                files_failed += 1
+                errors.append(
+                    {
+                        "file": str(file_path),
+                        "error": "Rate limit exceeded after retries",
+                    }
+                )
+                continue
+
+            total_chunks += ingest_data.get("total_chunks_created", len(chunks))
+            vectors_upserted += ingest_data.get("total_vectors_upserted", 0)
+            total_credits_used += float(ingest_data.get("credits_used", 0.0))
+            last_credits_remaining = float(ingest_data.get("credits_remaining", 0.0))
+
+        files_processed += 1
+        if batch_delay > 0:
+            time.sleep(batch_delay)
+
+    return IngestFolderResult(
+        files_processed=files_processed,
+        files_failed=files_failed,
+        total_chunks=total_chunks,
+        vectors_upserted=vectors_upserted,
+        embedding_provider=embedding_provider,
+        vector_db_provider=vector_db,
+        credits_used=total_credits_used,
+        credits_remaining=last_credits_remaining,
+        errors=errors,
+    )
+
+
+async def _ingest_folder_locally_async(
+    *,
+    client: "ScrapedatshiClient",
+    folder_path: Path,
+    embedding_provider: str,
+    embedding_api_key: str,
+    vector_db: str,
+    vector_db_config: dict,
+    embedding_model: str | None,
+    embedding_endpoint: str | None,
+    chunk_size: int,
+    overlap: int,
+    file_extensions: tuple[str, ...],
+    recursive: bool,
+    max_files: int | None,
+    batch_delay: float,
+    json_text_keys: tuple[str, ...],
+) -> "IngestFolderResult":
+    """Async version of :func:`_ingest_folder_locally`."""
+    import asyncio as _asyncio
+    import json as _json
+    from scrapedatshi.exceptions import RateLimitError
+
+    files_processed = 0
+    files_failed = 0
+    total_chunks = 0
+    vectors_upserted = 0
+    total_credits_used = 0.0
+    last_credits_remaining = 0.0
+    errors: list[dict] = []
+
+    if recursive:
+        all_files = [
+            p
+            for p in folder_path.rglob("*")
+            if p.is_file() and p.suffix.lower() in file_extensions
+        ]
+    else:
+        all_files = [
+            p
+            for p in folder_path.iterdir()
+            if p.is_file() and p.suffix.lower() in file_extensions
+        ]
+
+    all_files.sort()
+    if max_files is not None:
+        all_files = all_files[:max_files]
+
+    embedding_cfg = {"provider": embedding_provider, "api_key": embedding_api_key}
+    if embedding_model:
+        embedding_cfg["model"] = embedding_model
+    if embedding_endpoint:
+        embedding_cfg["endpoint"] = embedding_endpoint
+    vdb_cfg = {"provider": vector_db, **vector_db_config}
+
+    for file_path in all_files:
+        try:
+            text_entries = await _asyncio.to_thread(
+                _extract_text_from_file, file_path, json_text_keys
+            )
+        except Exception as exc:
+            files_failed += 1
+            errors.append(
+                {"file": str(file_path), "error": f"Text extraction failed: {exc}"}
+            )
+            continue
+
+        for text, source_url in text_entries:
+            if not text or not text.strip():
+                continue
+
+            chunk_payload: dict = {
+                "url": source_url,
+                "text": text,
+                "source_type": _guess_source_type(file_path),
+            }
+            if chunk_size != 512:
+                chunk_payload["chunk_size"] = chunk_size
+            if overlap != 50:
+                chunk_payload["overlap"] = overlap
+
+            backoff = 2.0
+            for attempt in range(5):
+                try:
+                    chunk_data = await client._post_async(
+                        "/v1/process-text", json=chunk_payload
+                    )
+                    break
+                except RateLimitError:
+                    if attempt == 4:
+                        raise
+                    await _asyncio.sleep(min(backoff, _MAX_BACKOFF_SLEEP))
+                    backoff *= 2
+            else:
+                files_failed += 1
+                errors.append(
+                    {
+                        "file": str(file_path),
+                        "error": "Rate limit exceeded after retries",
+                    }
+                )
+                continue
+
+            chunks = chunk_data.get("chunks", [])
+            if not chunks:
+                continue
+
+            form_data: dict = {
+                "embedding_config": _json.dumps(embedding_cfg),
+                "vector_db_config": _json.dumps(vdb_cfg),
+            }
+            if chunk_size != 512:
+                form_data["chunk_size"] = str(chunk_size)
+            if overlap != 50:
+                form_data["overlap"] = str(overlap)
+
+            text_bytes = text.encode("utf-8")
+            mime = (
+                "text/markdown" if file_path.suffix.lower() == ".md" else "text/plain"
+            )
+
+            backoff = 2.0
+            for attempt in range(5):
+                try:
+                    ingest_data = await client._post_async(
+                        "/v1/ingest",
+                        files={"files": (file_path.name, text_bytes, mime)},
+                        data=form_data,
+                    )
+                    break
+                except RateLimitError:
+                    if attempt == 4:
+                        raise
+                    await _asyncio.sleep(min(backoff, _MAX_BACKOFF_SLEEP))
+                    backoff *= 2
+            else:
+                files_failed += 1
+                errors.append(
+                    {
+                        "file": str(file_path),
+                        "error": "Rate limit exceeded after retries",
+                    }
+                )
+                continue
+
+            total_chunks += ingest_data.get("total_chunks_created", len(chunks))
+            vectors_upserted += ingest_data.get("total_vectors_upserted", 0)
+            total_credits_used += float(ingest_data.get("credits_used", 0.0))
+            last_credits_remaining = float(ingest_data.get("credits_remaining", 0.0))
+
+        files_processed += 1
+        if batch_delay > 0:
+            await _asyncio.sleep(batch_delay)
+
+    return IngestFolderResult(
+        files_processed=files_processed,
+        files_failed=files_failed,
+        total_chunks=total_chunks,
+        vectors_upserted=vectors_upserted,
+        embedding_provider=embedding_provider,
+        vector_db_provider=vector_db,
+        credits_used=total_credits_used,
+        credits_remaining=last_credits_remaining,
+        errors=errors,
     )
 
 

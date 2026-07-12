@@ -286,6 +286,73 @@ class IngestResult(BaseModel):
         )
 
 
+class IngestFolderResult(BaseModel):
+    """
+    Response from pipeline.ingest_folder() — bulk folder ingestion pipeline.
+
+    Accumulates results across all files in the folder. Files that fail
+    are recorded in ``errors`` and are not charged.
+
+    Example::
+
+        result = client.pipeline.ingest_folder(
+            folder_path="./scrapy_output/",
+            embedding_provider="openai",
+            embedding_api_key="sk-...",
+            embedding_model="text-embedding-3-small",
+            vector_db="pinecone",
+            vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+        )
+        print(f"Processed {result.files_processed} files → {result.vectors_upserted} vectors")
+        print(f"Cost: ${result.credits_used:.4f}")
+        for err in result.errors:
+            print(f"  Failed: {err['file']} — {err['error']}")
+    """
+
+    files_processed: int = Field(
+        0, description="Number of files successfully chunked and injected."
+    )
+    files_failed: int = Field(
+        0, description="Number of files that failed (not charged)."
+    )
+    total_chunks: int = Field(
+        0, description="Total number of chunks generated across all files."
+    )
+    vectors_upserted: int = Field(
+        0, description="Total number of vectors written to the vector DB."
+    )
+    embedding_provider: str = Field("", description="Embedding provider used.")
+    vector_db_provider: str = Field("", description="Vector DB provider used.")
+    credits_used: float = Field(
+        0.0,
+        description="Total credits deducted across all successfully processed files.",
+    )
+    credits_remaining: float = Field(
+        0.0,
+        description="Account credit balance after the last successful request.",
+    )
+    errors: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "List of per-file errors. Each entry is a dict with 'file' (path) "
+            "and 'error' (error message). Failed files are not charged."
+        ),
+    )
+
+    def __len__(self) -> int:
+        return self.files_processed
+
+    def __repr__(self) -> str:
+        return (
+            f"IngestFolderResult("
+            f"files_processed={self.files_processed}, "
+            f"files_failed={self.files_failed}, "
+            f"total_chunks={self.total_chunks}, "
+            f"vectors_upserted={self.vectors_upserted}, "
+            f"credits_used={self.credits_used:.4f})"
+        )
+
+
 # ── Schema Extract response ───────────────────────────────────────────────────
 
 
