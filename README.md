@@ -23,13 +23,51 @@ from scrapedatshi import ScrapedatshiClient
 
 client = ScrapedatshiClient(api_key="sds_...")
 
-# Chunk a URL to JSON (no embedding required)
 result = client.pipeline.chunk_url("https://docs.example.com")
-
-print(f"Got {result.total_chunks} chunks")
-print(f"Cost: ${result.credits_used:.4f} | Remaining: ${result.credits_remaining:.4f}")
+print(f"Got {result.total_chunks} chunks — cost ${result.credits_used:.4f}")
 for chunk in result.chunks:
     print(chunk.content[:80])
+```
+
+---
+
+## CLI — Project Scaffolding
+
+The SDK ships with a `scrapedatshi` CLI command that generates a ready-to-run sandbox project with pre-configured example scripts for every pipeline method.
+
+```bash
+scrapedatshi init my-project
+```
+
+This creates:
+
+```
+my-project/
+├── .env                        ← add your API keys here (gitignored)
+├── .gitignore
+├── README.md
+└── examples/
+    ├── 00_discover_providers.py   ← list all providers + required fields (no keys needed)
+    ├── 01_chunk_url.py
+    ├── 02_chunk_file.py
+    ├── 03_crawl_site.py
+    ├── 04_sync_to_vdb.py
+    ├── 05_ingest_file.py
+    ├── 06_ingest_folder.py
+    ├── 07_autorag.py
+    ├── 08_schema_extract.py
+    ├── 09_extract_crawl.py
+    ├── 10_query_vdb.py
+    ├── 11_rag_chat.py
+    └── 12_inspect_vdb.py
+```
+
+Each script has a clearly marked `# ── CONFIGURE ──` block at the top — just fill in your target URL, file path, or keys and run it. Start with `00_discover_providers.py` to see all supported providers and the env vars each one needs.
+
+```bash
+cd my-project
+python examples/00_discover_providers.py
+python examples/01_chunk_url.py
 ```
 
 ---
@@ -51,101 +89,135 @@ client = ScrapedatshiClient()
 ```
 
 Get your API key at [scrapedatshi.com/portal/register](https://scrapedatshi.com/portal/register).
-New accounts receive **$1.00 free credits** — no credit card required.
-
----
-
-## Pricing
-
-scrapedatshi uses a **pay-per-use credit wallet** — no subscriptions, no monthly fees.
-Credits are deducted after each successful API call. Failed requests are never charged.
-
-### Fetch Mode Pricing
-
-Starting in v0.8.0, the SDK uses **local-fetch mode by default** — your machine fetches the URL using your own IP address and submits the HTML to our server for processing. This is cheaper and keeps your IP off our server.
-
-| Operation | Rate | Mode |
-|---|---|---|
-| **Per URL (local fetch)** | **$0.0020 / URL** | SDK/MCP default — your machine fetches |
-| Per URL (server fetch) | $0.0040 / URL | Portal tools, or SDK `fetch_mode="server"` |
-| Spider Fetch (local) | $0.0050 / URL | /v1/spider |
-| Spider Fetch (server) | $0.0100 / URL | /v1/spider via portal |
-| Chunk Fee | $0.0005 / chunk | All routes (per chunk generated) |
-| Injection Fee | $0.0030 / chunk | /v1/sync, /v1/ingest, /v1/autorag (vector DB upserts) |
-| Contextual Retrieval | $0.0010 / chunk | When `contextual_retrieval=True` (per enriched chunk) |
-| JS Render | $0.0050 / URL | When `js_render=True` (server fetch only) |
-| Schema Extract | $0.0030 + ($0.0001 × field) | /v1/extract baseline |
-| Vector Query | $0.0002 / chunk | /v1/query (per chunk retrieved) |
-
-Top up your balance at [scrapedatshi.com/portal/billing](https://scrapedatshi.com/portal/billing).
 
 ---
 
 ## Fetch Mode
 
-The SDK supports two fetch modes, controlled by the `fetch_mode` parameter on `ScrapedatshiClient`:
+The SDK supports two fetch modes, controlled by the `fetch_mode` parameter on `ScrapedatshiClient`.
 
-### `fetch_mode="local"` (default — v0.8.0+)
+### `fetch_mode="local"` (default)
 
-The SDK fetches the URL on **your machine** using your IP address, then submits the raw HTML to our server for processing. This is the default and recommended mode.
+The SDK fetches the URL on **your machine** using your IP address, then submits the raw HTML to our server for processing.
 
 - ✅ Your IP is used — not our server's
 - ✅ Billed at the standard per-URL rate ($0.0020)
 - ✅ Faster — no double-hop latency
-- ✅ Works for any publicly accessible URL
 
 ```python
-# Default — local fetch (your IP)
-client = ScrapedatshiClient(api_key="sds_...")
-result = client.pipeline.chunk_url("https://docs.example.com")
+client = ScrapedatshiClient(api_key="sds_...")  # local fetch by default
 ```
 
 ### `fetch_mode="server"`
 
-Our server fetches the URL. Use this if you are behind a corporate firewall, need server-managed IP rotation, or are running in an environment without outbound HTTP access.
+Our server fetches the URL. Use this if you are behind a corporate firewall or need server-managed IP rotation.
 
 - ⚠️ Our server's IP is used
 - ⚠️ Billed at 2× the standard rate ($0.0040 / URL)
-- ✅ Works from restricted environments (no outbound access needed)
+- ✅ Works from restricted environments
 
 ```python
-# Server fetch — our server fetches the URL
 client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
-result = client.pipeline.chunk_url("https://docs.example.com")
 ```
 
-> **Note:** The portal no-code tools always use server fetch and are billed at the server fetch rate.
+---
+
+## Chunk to JSON
+
+No embedding or vector DB required. Returns structured JSON chunks from any source.
+
+### Chunk a URL
+
+```python
+result = client.pipeline.chunk_url("https://docs.example.com")
+
+print(f"Got {result.total_chunks} chunks — cost ${result.credits_used:.4f}")
+for chunk in result.chunks:
+    print(chunk.content[:80])
+```
+
+Optional parameters:
+
+```python
+result = client.pipeline.chunk_url(
+    "https://docs.example.com/guide",
+    selector="article",      # CSS selector to target main content
+    chunk_size=512,           # tokens per chunk (default: 400)
+    overlap=50,               # token overlap between chunks (default: 40)
+    js_render=True,           # headless Chromium for SPAs
+)
+```
+
+### Chunk a PDF URL
+
+Pass any PDF URL directly — S3 links, CDN URLs, direct `.pdf` links — and the API automatically detects and extracts text. No special parameters needed.
+
+```python
+result = client.pipeline.chunk_url(
+    "https://my-bucket.s3.amazonaws.com/reports/annual-report-2024.pdf"
+)
+print(f"Got {result.total_chunks} chunks from PDF")
+```
+
+### Chunk a local file
+
+Supports PDF, MD, TXT, YAML, YML, and JSON. In local-fetch mode (default), the file is parsed on **your machine** — no heavy PDF processing on our server.
+
+```python
+result = client.pipeline.chunk_file("./docs/manual.pdf")
+print(f"Got {result.total_chunks} chunks from {result.source}")
+print(f"Cost: ${result.credits_used:.4f}")
+```
+
+| Mode | Who parses the file | OCR support | Rate |
+|---|---|---|---|
+| `local` (default) | Your machine | Text layer only | $0.0020 |
+| `server` | Our server | Text layer + RapidOCR fallback | $0.0040 |
+
+Use `fetch_mode="server"` for scanned/image-only PDFs that need OCR:
+
+```python
+client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
+result = client.pipeline.chunk_file("./scanned_report.pdf")  # OCR included
+```
+
+### Crawl a website
+
+Crawls via sitemap or spider and chunks all pages. **Large sites are automatically batched server-side** — no manual pagination needed.
+
+```python
+# Sitemap crawl (default) — reads sitemap.xml
+result = client.pipeline.crawl("https://docs.example.com", max_pages=20)
+print(f"Crawled {result.pages_crawled} pages → {result.total_chunks} chunks")
+
+# Spider crawl — follows links, works on any site
+result = client.pipeline.crawl(
+    "https://example.com",
+    crawl_mode="spider",
+    max_pages=10,
+    include_pattern="/docs/",
+    exclude_pattern="/blog/",
+)
+
+# Large sites (>200 pages) are auto-batched
+if result.auto_batched:
+    print(f"Auto-batched: {result.batches_processed} batches of {result.batch_size} pages")
+```
 
 ---
 
 ## Authenticated Scraping (v0.10.0+)
 
-For pages behind a login wall, you can pass your session cookies and/or custom headers directly to any fetch method. Credentials are **only sent to URLs within the permitted domain scope** — they are never leaked to external domains.
-
-### Single URL
+For pages behind a login wall, pass your session cookies and/or custom headers to any fetch method. Credentials are **only sent to URLs within the permitted domain scope** — never leaked to external domains.
 
 ```python
-# Pass your browser session cookie
+# Scrape a login-walled page
 result = client.pipeline.chunk_url(
     "https://internal.company.com/wiki/api-docs",
     cookies={"session": "abc123", "csrf": "xyz"},
     headers={"Authorization": "Bearer eyJ..."},
 )
 
-# Full pipeline with authentication
-result = client.pipeline.sync(
-    url="https://internal.company.com/wiki/api-docs",
-    cookies={"session": "abc123"},
-    embedding_provider="openai",
-    embedding_api_key="sk-...",
-    vector_db="pinecone",
-    vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
-)
-```
-
-### Crawl with Authentication
-
-```python
 # Authenticated sitemap crawl — cookies stay on your machine
 result = client.pipeline.crawl(
     "https://internal.company.com",
@@ -168,244 +240,58 @@ result = client.pipeline.crawl(
 **Security model:**
 - Cookies and headers are **only sent to URLs within the permitted domain scope** — never to external domains discovered during crawling
 - `allow_subdomains=False` (default): only the exact hostname receives credentials
-- `allow_subdomains=True`: credentials are shared with subdomains of the root domain (e.g. `wiki.company.com` when root is `company.com`). Multi-part TLDs (`.co.uk`, `.com.br`) are handled safely.
+- `allow_subdomains=True`: credentials are shared with subdomains of the root domain. Multi-part TLDs (`.co.uk`, `.com.br`) are handled safely.
 - Credentials are **never forwarded to the scrapedatshi server** — they stay on your machine
 
 ---
 
-## Pipeline Methods
+## Full Pipeline — Embed + Inject
 
-### Chunk to JSON
+Scrape, embed, and inject directly into your vector database in one call. You bring your own embedding provider and vector DB keys (BYOK).
 
-No embedding or vector DB required. Returns structured JSON chunks from any source.
-
-#### Chunk a URL
-
-```python
-result = client.pipeline.chunk_url("https://docs.example.com")
-
-# result.chunks              → list[Chunk]
-# result.total_chunks        → int
-# result.source              → str (the URL)
-# result.credits_used        → float
-# result.credits_remaining   → float
-# result.content_truncated   → bool (True if content exceeded ~75,000 words)
-```
-
-#### Chunk a PDF URL
-
-Pass any PDF URL directly — S3 links, CDN URLs, direct `.pdf` links — and the API automatically detects and extracts text using pdfplumber (text-layer) with RapidOCR fallback for scanned documents. No special parameters needed.
-
-#### Chunk a local file (PDF, MD, TXT, YAML, JSON)
-
-In local-fetch mode (default), the file is parsed on **your machine** using your own CPU — no heavy PDF processing on our server. The extracted text is sent to our server for chunking only. PDF support is included with the standard install.
-
-```python
-result = client.pipeline.chunk_file("./docs/manual.pdf")
-print(f"Got {result.total_chunks} chunks from {result.source}")
-print(f"Cost: ${result.credits_used:.4f}")  # billed at local rate ($0.0020)
-```
-
-**Fetch mode for files:**
-
-| Mode | Who parses the file | OCR support | Rate |
-|---|---|---|---|
-| `local` (default) | Your machine | Text layer only (no OCR) | $0.0020 |
-| `server` | Our server | Text layer + RapidOCR fallback | $0.0040 |
-
-Use `fetch_mode="server"` for scanned/image-only PDFs that need OCR:
-
-```python
-client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
-result = client.pipeline.chunk_file("./scanned_report.pdf")  # OCR included
-```
-
----
-
-### Query Your Vector Database
-
-After ingesting data, query it using natural language. Use `inspect_vectordb()` first to confirm the correct embedding model.
-
-#### Inspect a vector database (free)
-
-```python
-result = client.pipeline.inspect_vectordb(
-    vector_db="pinecone",
-    vector_db_config={
-        "api_key": os.getenv("PINECONE_API_KEY"),
-        "index_host": os.getenv("PINECONE_INDEX_HOST"),
-    },
-)
-
-print(f"Dimension: {result.dimension}")
-print(f"Vectors: {result.total_vector_count}")
-print(f"Suggested models: {[m.label for m in result.suggested_models]}")
-# → Suggested models: ['OpenAI text-embedding-3-small', 'OpenAI text-embedding-ada-002 (legacy)']
-```
-
-#### Query a vector database
-
-```python
-# Confirm the model from inspect_vectordb first, then query
-result = client.pipeline.query_vectordb(
-    query="How do I authenticate with the API?",
-    embedding_provider="openai",
-    embedding_api_key=os.getenv("OPENAI_API_KEY"),
-    embedding_model="text-embedding-3-small",  # must match ingestion model
-    vector_db="pinecone",
-    vector_db_config={
-        "api_key": os.getenv("PINECONE_API_KEY"),
-        "index_host": os.getenv("PINECONE_INDEX_HOST"),
-    },
-    top_k=5,
-)
-
-print(f"Found {result.chunks_retrieved} results (cost: ${result.credits_used:.4f})")
-for r in result.results:
-    print(f"  [{r.score:.2f}] {r.text[:100]}...")
-```
-
-**Billing:** $0.0002 per chunk returned. Default `top_k=5` → $0.001 per query.
-`inspect_vectordb()` is always free.
-
-#### RAG Chat — retrieve chunks and generate a grounded answer
-
-```python
-result = client.pipeline.rag_chat(
-    query="How do I authenticate with the API?",
-    embedding_provider="openai",
-    embedding_api_key=os.getenv("OPENAI_API_KEY"),
-    embedding_model="text-embedding-3-small",  # must match ingestion model
-    vector_db="pinecone",
-    vector_db_config={
-        "api_key": os.getenv("PINECONE_API_KEY"),
-        "index_host": os.getenv("PINECONE_INDEX_HOST"),
-    },
-    llm_provider="openai",
-    llm_api_key=os.getenv("OPENAI_API_KEY"),
-    llm_model="gpt-4o-mini",
-    top_k=5,
-)
-
-print(result.answer)
-print(f"Based on {result.chunks_retrieved} chunks (cost: ${result.credits_used:.4f})")
-for source in result.sources:
-    print(f"  [{source.score:.2f}] {source.text[:80]}...")
-```
-
-**Billing:** $0.0002 per chunk retrieved (same as `query_vectordb()`). LLM tokens are your own cost — scrapedatshi does not bill for LLM usage.
-
----
-
-```python
-# Direct S3 PDF link — automatically detected and extracted
-result = client.pipeline.chunk_url(
-    "https://my-bucket.s3.amazonaws.com/reports/annual-report-2024.pdf"
-)
-
-# CDN-hosted PDF without .pdf extension — detected via Content-Type header
-result = client.pipeline.chunk_url(
-    "https://cdn.example.com/documents/abc123"
-)
-
-print(f"Got {result.total_chunks} chunks from PDF")
-```
-
-#### Chunk a URL with JS rendering
-
-For JavaScript-heavy pages and SPAs that require a browser to render:
-
-```python
-result = client.pipeline.chunk_url(
-    "https://spa.example.com/dashboard",
-    js_render=True,
-)
-```
-
-#### Chunk a local file
-
-Supports PDF, MD, TXT, YAML, YML, and JSON.
-
-```python
-result = client.pipeline.chunk_file("./docs/manual.pdf")
-
-print(f"Got {result.total_chunks} chunks from {result.source}")
-print(f"Cost: ${result.credits_used:.4f}")
-```
-
-#### Crawl a website
-
-Crawls via sitemap or spider and chunks all pages. **Large sites are automatically batched server-side** — no manual pagination needed.
-
-```python
-# Sitemap crawl (default) — reads sitemap.xml
-result = client.pipeline.crawl("https://example.com", max_pages=10)
-
-# Spider crawl — follows links, works on any site
-result = client.pipeline.crawl(
-    "https://example.com",
-    crawl_mode="spider",
-    max_pages=5,
-    include_pattern="/docs/",
-    exclude_pattern="/blog/",
-)
-
-print(f"Crawled {result.pages_crawled} pages → {result.total_chunks} chunks")
-print(f"Cost: ${result.credits_used:.4f}")
-
-# Large sites (>200 pages) are auto-batched — check if batching occurred
-if result.auto_batched:
-    print(f"Auto-batched: {result.batches_processed} batches of {result.batch_size} pages")
-```
-
----
-
-### Full Pipeline — Embed + Inject
-
-Scrape, embed, and inject directly into your vector database in one call.
-
-#### Sync a URL
+### Sync a URL
 
 ```python
 result = client.pipeline.sync(
     url="https://docs.example.com",
     embedding_provider="openai",
     embedding_api_key="sk-...",
+    embedding_model="text-embedding-3-small",
     vector_db="pinecone",
     vector_db_config={
         "api_key": "pc-...",
         "index_host": "https://my-index-abc123.svc.pinecone.io",
     },
 )
-
 print(f"Upserted {result.vectors_upserted} vectors ({result.total_tokens} tokens)")
 print(f"Cost: ${result.credits_used:.4f}")
 ```
 
-#### Ingest a local file
+### Ingest a local file
 
 ```python
 result = client.pipeline.ingest(
     file_path="./docs/manual.pdf",
     embedding_provider="openai",
     embedding_api_key="sk-...",
+    embedding_model="text-embedding-3-small",
     vector_db="qdrant",
     vector_db_config={
         "url": "https://your-cluster.qdrant.io",
         "collection_name": "documents",
-        "api_key": "qdrant-key",  # optional for local Qdrant
+        "api_key": "qdrant-key",
     },
 )
+print(f"Ingested {result.chunks_created} chunks → {result.vectors_upserted} vectors")
 ```
 
-#### Ingest a folder (bulk import) — v0.11.0+
+### Ingest a folder (bulk import) — v0.11.0+
 
-Bulk-ingest an entire folder of pre-scraped files into your vector database. Supports `.md`, `.txt`, `.json`, `.yaml`, and `.yml`. Automatically handles **Scrapy JSON array exports** — each item in the array is extracted and ingested individually. Includes exponential backoff on rate limits and a configurable per-file delay.
+Bulk-ingest an entire folder of pre-scraped files into your vector database. Works with output from most scrapers — Scrapy, Playwright, Apify, custom scripts, and more. Supports `.md`, `.txt`, `.json`, `.yaml`, and `.yml`. JSON arrays are automatically detected and each item is extracted and ingested individually.
 
 ```python
-# Ingest all supported files in a folder
 result = client.pipeline.ingest_folder(
-    folder_path="./scrapy_output/",
+    folder_path="./scraped_output/",
     embedding_provider="openai",
     embedding_api_key="sk-...",
     embedding_model="text-embedding-3-small",
@@ -421,9 +307,7 @@ print(f"Cost: ${result.credits_used:.4f}")
 for err in result.errors:
     print(f"  ✗ {err['file']} — {err['error']}")
 
-# Scrapy JSON dump — each item in the array is ingested individually.
-# Items with 'text', 'content', 'html', 'body', 'markdown', or 'description'
-# fields are automatically detected and extracted.
+# Restrict to specific file types + add delay between files
 result = client.pipeline.ingest_folder(
     folder_path="./",
     file_extensions=[".json"],   # only process JSON files
@@ -442,11 +326,7 @@ result = await client.pipeline.ingest_folder_async(
     embedding_api_key="sk-...",
     embedding_model="text-embedding-3-small",
     vector_db="qdrant",
-    vector_db_config={
-        "url": "https://your-cluster.qdrant.io",
-        "collection_name": "docs",
-        "api_key": "qdrant-key",
-    },
+    vector_db_config={"url": "https://...", "collection_name": "docs", "api_key": "..."},
 )
 ```
 
@@ -457,22 +337,116 @@ result.files_processed      # int — number of files successfully ingested
 result.files_failed         # int — number of files that failed
 result.total_chunks         # int — total chunks created across all files
 result.vectors_upserted     # int — total vectors upserted
-result.embedding_provider   # str
-result.vector_db_provider   # str
 result.credits_used         # float
 result.credits_remaining    # float
 result.errors               # list[dict] — [{"file": "...", "error": "..."}, ...]
 ```
 
-**Billing:** $0.0020 / file · $0.0005 / chunk · $0.0030 / chunk injected. Only successfully processed files are billed.
+### AutoRAG — crawl entire site → embed → inject
+
+```python
+result = client.pipeline.autorag(
+    url="https://docs.example.com",
+    max_pages=50,
+    crawl_mode="sitemap",   # or "spider"
+    embedding_provider="openai",
+    embedding_api_key="sk-...",
+    embedding_model="text-embedding-3-small",
+    vector_db="pinecone",
+    vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+)
+print(f"Crawled {result.pages_crawled} pages → {result.vectors_upserted} vectors")
+
+# Large sites are auto-batched — no manual pagination needed
+result = client.pipeline.autorag(
+    url="https://large-docs-site.com",
+    max_pages=800,  # processed as 4 batches of 200 pages each
+    embedding_provider="openai",
+    embedding_api_key="sk-...",
+    embedding_model="text-embedding-3-small",
+    vector_db="pinecone",
+    vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+)
+```
 
 ---
 
-### Schema Extraction
+## Query Your Vector Database
 
-Extract structured data from any URL using your own LLM key. Define a schema and the API returns a typed JSON object — or a list of objects for pages with multiple items.
+### Inspect a vector database (free)
 
-#### Extract a single object
+Use this first to confirm the dimension and embedding model used during ingestion.
+
+```python
+result = client.pipeline.inspect_vectordb(
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+)
+print(f"Dimension: {result.dimension}")
+print(f"Vectors: {result.total_vector_count:,}")
+print(f"Suggested models: {[m.label for m in result.suggested_models]}")
+```
+
+`inspect_vectordb()` is always free — no credits charged.
+
+### Query a vector database
+
+```python
+result = client.pipeline.query_vectordb(
+    query="How do I authenticate with the API?",
+    embedding_provider="openai",
+    embedding_api_key=os.getenv("OPENAI_API_KEY"),
+    embedding_model="text-embedding-3-small",  # must match ingestion model
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+    top_k=5,
+)
+print(f"Found {result.chunks_retrieved} results (cost: ${result.credits_used:.4f})")
+for r in result.results:
+    print(f"  [{r.score:.2f}] {r.text[:100]}...")
+```
+
+**Billing:** $0.0002 per chunk returned. Default `top_k=5` → $0.001 per query.
+
+### RAG Chat — retrieve chunks and generate a grounded answer
+
+```python
+result = client.pipeline.rag_chat(
+    query="How do I authenticate with the API?",
+    embedding_provider="openai",
+    embedding_api_key=os.getenv("OPENAI_API_KEY"),
+    embedding_model="text-embedding-3-small",
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+    llm_provider="openai",
+    llm_api_key=os.getenv("OPENAI_API_KEY"),
+    llm_model="gpt-4o-mini",
+    top_k=5,
+)
+print(result.answer)
+print(f"Based on {result.chunks_retrieved} chunks (cost: ${result.credits_used:.4f})")
+for source in result.sources:
+    print(f"  [{source.score:.2f}] {source.text[:80]}...")
+```
+
+**Billing:** $0.0002 per chunk retrieved. LLM tokens are your own cost — scrapedatshi does not bill for LLM usage.
+
+---
+
+## Schema Extraction
+
+Extract structured data from any URL using your own LLM key. Define a schema and the API returns a typed JSON object.
+
+### Extract a single object
 
 ```python
 result = client.pipeline.extract(
@@ -485,14 +459,14 @@ result = client.pipeline.extract(
     },
     llm_provider="openai",
     llm_api_key="sk-...",
+    llm_model="gpt-4o-mini",
 )
-
 print(result.extracted)
 # → {"title": "Widget Pro", "price": 29.99, "in_stock": True, "description": "..."}
 print(f"Cost: ${result.credits_used:.4f}")
 ```
 
-#### Extract a list of items
+### Extract a list of items
 
 Use `extract_as_list=True` for pages with multiple matching items (product listings, article feeds, search results):
 
@@ -505,33 +479,55 @@ result = client.pipeline.extract(
     },
     llm_provider="openai",
     llm_api_key="sk-...",
+    llm_model="gpt-4o-mini",
     extract_as_list=True,
 )
-
 print(f"Extracted {result.item_count} products")
 for product in result.extracted:
     print(f"  {product['title']}: ${product['price']}")
 ```
 
-#### Extract from a JS-rendered page
+### Schema Extraction via Crawl
+
+Crawl an entire domain and extract structured data from every page in a single call. Each page is processed independently — failed pages return an error object without aborting the batch. **Only successfully extracted pages are billed.**
 
 ```python
-result = client.pipeline.extract(
-    url="https://spa.example.com/data",
-    schema={"value": "string — the data value"},
-    llm_provider="anthropic",
-    llm_api_key="sk-ant-...",
-    js_render=True,
+result = client.pipeline.extract_crawl(
+    url="https://example.com/products",
+    schema={
+        "title": "string — the product name",
+        "price": "number — the price in USD",
+        "in_stock": "boolean — whether the item is in stock",
+    },
+    llm_provider="openai",
+    llm_api_key="sk-...",
+    llm_model="gpt-4o-mini",
+    max_pages=20,
+    include_pattern="/products/",
 )
+print(f"Extracted {result.pages_extracted}/{result.pages_attempted} pages")
+print(f"Cost: ${result.credits_used:.4f}")
+
+for page in result.results:
+    if page.ok:
+        print(f"  {page.url}: {page.extracted}")
+    else:
+        print(f"  {page.url}: FAILED — {page.error}")
+
+# Access only successful results
+for page in result.successful_results:
+    print(page.extracted["title"], page.extracted["price"])
 ```
+
+**Billing:** `$0.0020 + $0.0030 + (N_fields × $0.0001)` per successfully extracted page.
 
 ---
 
-### Contextual Retrieval (RAG 2.0)
+## Contextual Retrieval (RAG 2.0)
 
 For each chunk, an LLM generates a unique context string describing the document identity, section identity, and specific entities in that chunk. This context is prepended to the chunk text before embedding, boosting retrieval accuracy by 35–50%.
 
-**Pricing:** `$0.0010` per chunk successfully enriched (only charged for chunks where CR succeeded).
+**Pricing:** `$0.0010` per chunk successfully enriched.
 
 ```python
 result = client.pipeline.chunk_url(
@@ -542,13 +538,11 @@ result = client.pipeline.chunk_url(
     llm_model="gpt-4o-mini",
 )
 
-# Each chunk now has per-chunk context fields
 for chunk in result.chunks:
     print(chunk.context)        # LLM-generated context for this specific chunk
     print(chunk.original_text)  # Raw chunk text before enrichment
     print(chunk.content)        # Combined: "Context: ...\n\n{original_text}"
 
-# Check if CR partially failed (chunks still returned without context)
 if result.contextual_retrieval_error:
     print(f"CR warning: {result.contextual_retrieval_error}")
 ```
@@ -568,24 +562,14 @@ from scrapedatshi.providers import (
     LLM_PROVIDERS,
 )
 
-# List all embedding providers
 for key, info in EMBEDDING_PROVIDERS.items():
-    print(f"{key}: {info['label']} (requires_api_key={info['requires_api_key']})")
-    print(f"  {info['notes']}")
+    print(f"{key}: {info['label']}")
 
-# Check required fields for a vector DB
 print(VECTOR_DB_PROVIDERS["pinecone"]["required_fields"])
 # → ["api_key", "index_host"]
-
-# List LLM providers (for CR and schema extraction)
-for key, info in LLM_PROVIDERS.items():
-    print(f"{key}: {info['label']}")
-    print(f"  {info['notes']}")
 ```
 
 ### Embedding Providers
-
-**Embedding providers** use embedding-specific models to convert text into vectors. Check your provider's documentation for available models.
 
 | Key | Provider | API Key Required | Notes |
 |---|---|---|---|
@@ -612,17 +596,13 @@ for key, info in LLM_PROVIDERS.items():
 
 ### LLM Providers (for Contextual Retrieval & Schema Extraction)
 
-**LLM providers** use chat/completion models — different from embedding models. A model name is always required; no default is applied. Check your provider's documentation for models available on your API key.
-
 | Key | Provider | Document Processing Window |
 |---|---|---|
 | `openai` | OpenAI | Standard models (mini, etc.): 8k chars · Advanced (gpt-4o, etc.): 30k chars |
 | `anthropic` | Anthropic | Standard models (haiku): 8k chars · Advanced (sonnet, opus): 30k chars |
 | `gemini` | Google Gemini | Standard models (flash, lite, nano): 8k chars · Advanced (pro, etc.): 30k chars |
 
-**Document processing window (Schema Extraction only):** This cap applies to `/v1/extract` and `/v1/extract-crawl` — it is a **scrapedatshi server-side limit** on how much page text is sent to the LLM for schema extraction, not the model's actual token limit. Standard models (names containing "mini", "flash", "haiku", "lite", or "nano") receive up to 8,000 characters; all other models receive up to 30,000 characters. Use an advanced model for long-form pages (documentation, legal docs, research papers) to ensure the full page is considered.
-
-> **Note:** This limit does **not** apply to Contextual Retrieval. CR uses a separate fixed document preview window and is not affected by model tier.
+> **Note:** The document processing window applies to `/v1/extract` and `/v1/extract-crawl` only — it is a scrapedatshi server-side limit on how much page text is sent to the LLM, not the model's actual token limit. Use an advanced model for long-form pages.
 
 ---
 
@@ -630,43 +610,31 @@ for key, info in LLM_PROVIDERS.items():
 
 ### Ollama (Local Embedding)
 
-Ollama lets you run embedding models locally — no API key required. Because the scrapedatshi API server needs to reach your Ollama instance, you must expose it publicly using [ngrok](https://ngrok.com) (or a similar tunnel) before use.
-
-**Setup:**
+Ollama lets you run embedding models locally — no API key required. Because the scrapedatshi API server needs to reach your Ollama instance, you must expose it publicly using [ngrok](https://ngrok.com) before use.
 
 ```bash
-# 1. Start Ollama and pull an embedding model
 ollama pull nomic-embed-text
-
-# 2. Expose it publicly with ngrok
 ngrok http 11434
 # → Forwarding: https://abc123.ngrok-free.app → localhost:11434
 ```
-
-**Usage:**
 
 ```python
 result = client.pipeline.sync(
     url="https://docs.example.com",
     embedding_provider="ollama",
-    embedding_api_key="",                          # no key required
+    embedding_api_key="",
     embedding_model="nomic-embed-text",
-    embedding_endpoint="https://abc123.ngrok-free.app",  # your ngrok URL
+    embedding_endpoint="https://abc123.ngrok-free.app",
     vector_db="chroma",
     vector_db_config={"collection_name": "docs"},
 )
 ```
 
-> **Important:** The `embedding_endpoint` must be the public ngrok HTTPS URL, not `localhost`. The API server cannot reach your local machine directly.
-
 ### ChromaDB (Local Vector DB)
-
-ChromaDB stores vectors as files on your local machine. The ChromaDB HTTP server must be running before you call the API.
 
 ```bash
 pip install chromadb
 chroma run --path ./chroma_data
-# → ChromaDB running at http://localhost:8000
 ```
 
 ```python
@@ -678,15 +646,13 @@ result = client.pipeline.sync(
     vector_db="chroma",
     vector_db_config={
         "collection_name": "my_docs",
-        "host": "localhost",   # optional, default: localhost
-        "port": 8000,          # optional, default: 8000
+        "host": "localhost",
+        "port": 8000,
     },
 )
 ```
 
 ### LanceDB (Local Vector DB)
-
-LanceDB stores vectors as files on your local filesystem — no server required.
 
 ```python
 result = client.pipeline.sync(
@@ -696,7 +662,7 @@ result = client.pipeline.sync(
     embedding_model="text-embedding-3-small",
     vector_db="lancedb",
     vector_db_config={
-        "db_path": "./lancedb",      # local directory path
+        "db_path": "./lancedb",
         "table_name": "documents",
     },
 )
@@ -735,7 +701,7 @@ async def main():
         )
         total = sum(r.total_chunks for r in results)
         total_cost = sum(r.credits_used for r in results)
-        print(f"Processed {len(urls)} URLs → {total} total chunks — total cost ${total_cost:.4f}")
+        print(f"Processed {len(urls)} URLs → {total} chunks — total cost ${total_cost:.4f}")
 ```
 
 ---
@@ -753,17 +719,17 @@ result.total_chunks            # int
 result.source                  # str
 result.contextual_retrieval_used  # bool
 result.content_truncated       # bool — True if content exceeded ~75,000 words
-result.credits_used            # float — credits deducted for this request
-result.credits_remaining       # float — account balance after this request
+result.credits_used            # float
+result.credits_remaining       # float
 ```
 
 ### `Chunk`
 
 ```python
-chunk.content              # str — the chunk text (combined "Context: ...\n\n{original_text}" when CR used)
+chunk.content              # str — the chunk text
 chunk.token_estimate       # int — estimated token count
-chunk.original_text        # str | None — raw text before CR enrichment (only set when CR succeeded)
-chunk.context              # str | None — LLM-generated per-chunk context (only set when CR succeeded)
+chunk.original_text        # str | None — raw text before CR enrichment
+chunk.context              # str | None — LLM-generated per-chunk context
 chunk.metadata             # dict — source URL, page number, etc.
 ```
 
@@ -791,85 +757,46 @@ result.credits_used        # float
 result.credits_remaining   # float
 ```
 
+### `IngestFolderResult`
+
+```python
+result.files_processed      # int
+result.files_failed         # int
+result.total_chunks         # int
+result.vectors_upserted     # int
+result.embedding_provider   # str
+result.vector_db_provider   # str
+result.credits_used         # float
+result.credits_remaining    # float
+result.errors               # list[dict] — [{"file": "...", "error": "..."}, ...]
+```
+
 ### `ExtractResult`
 
 ```python
-result.extracted           # dict | list[dict] — the extracted data
-result.field_count         # int — number of schema fields
-result.item_count          # int | None — number of items (list mode only)
-result.is_list             # bool — True if extracted is a list
-result.url                 # str — the URL that was scraped
+result.extracted           # dict | list[dict]
+result.field_count         # int
+result.item_count          # int | None — list mode only
+result.is_list             # bool
+result.url                 # str
 result.llm_provider        # str
 result.llm_model           # str
-result.schema_fields       # list[str] — field names from your schema
-result.js_render           # bool — whether JS rendering was used
-result.content_warning     # str | None — warning if content may be incomplete
+result.schema_fields       # list[str]
+result.js_render           # bool
+result.content_warning     # str | None
 result.credits_used        # float
 result.credits_remaining   # float
 ```
 
----
-
-### Schema Extraction via Crawl
-
-Crawl an entire domain and extract structured data from every page in a single call. Each page is processed independently — failed pages return an error object without aborting the batch. **Only successfully extracted pages are billed.**
+### `ExtractCrawlResult`
 
 ```python
-result = client.pipeline.extract_crawl(
-    url="https://example.com/products",
-    schema={
-        "title": "string — the product name",
-        "price": "number — the price in USD",
-        "in_stock": "boolean — whether the item is in stock",
-    },
-    llm_provider="openai",
-    llm_api_key="sk-...",
-    max_pages=20,
-    include_pattern="/products/",
-)
-
-print(f"Extracted {result.pages_extracted}/{result.pages_attempted} pages")
-print(f"Cost: ${result.credits_used:.4f} | Remaining: ${result.credits_remaining:.4f}")
-
-# Iterate all results
-for page in result.results:
-    if page.ok:
-        print(f"  {page.url}: {page.extracted}")
-    else:
-        print(f"  {page.url}: FAILED — {page.error}")
-
-# Access only successful results
-for page in result.successful_results:
-    print(page.extracted["title"], page.extracted["price"])
-```
-
-**Billing:** `$0.0020 + $0.0030 + (N_fields × $0.0001)` per successfully extracted page.
-Example: 20 pages × 3 fields = 20 × $0.0053 = **$0.106**
-
-#### Spider crawl mode
-
-```python
-result = client.pipeline.extract_crawl(
-    url="https://example.com",
-    schema={"title": "string — the page title", "summary": "string — a brief summary"},
-    llm_provider="anthropic",
-    llm_api_key="sk-ant-...",
-    crawl_mode="spider",
-    max_pages=10,
-)
-```
-
-#### `ExtractCrawlResult` model
-
-```python
-result.results             # list[ExtractCrawlPageResult] — per-page results
-result.pages_extracted     # int — successfully extracted
-result.pages_failed        # int — failed (not billed)
-result.pages_attempted     # int — total attempted
-result.pages_discovered    # int — total URLs found in sitemap/spider
-result.successful_results  # list[ExtractCrawlPageResult] — only ok pages
-result.failed_results      # list[ExtractCrawlPageResult] — only failed pages
-result.job_id              # str | None — persistent job ID
+result.results             # list[ExtractCrawlPageResult]
+result.pages_extracted     # int
+result.pages_failed        # int
+result.pages_attempted     # int
+result.successful_results  # list[ExtractCrawlPageResult]
+result.failed_results      # list[ExtractCrawlPageResult]
 result.credits_used        # float
 result.credits_remaining   # float
 ```
@@ -877,12 +804,48 @@ result.credits_remaining   # float
 Each `ExtractCrawlPageResult`:
 
 ```python
-page.url        # str — the URL scraped
+page.url        # str
 page.status     # "ok" | "error"
-page.extracted  # dict | list[dict] | None — extracted data (None on error)
-page.error      # str | None — error message (None on success)
-page.ok         # bool — True if status == "ok"
+page.extracted  # dict | list[dict] | None
+page.error      # str | None
+page.ok         # bool
 ```
+
+---
+
+## Pricing
+
+scrapedatshi uses a **pay-per-use credit wallet** — no subscriptions, no monthly fees.
+Credits are deducted after each successful API call. Failed requests are never charged.
+
+| Operation | Rate | Notes |
+|---|---|---|
+| **Per URL (local fetch)** | **$0.0020 / URL** | SDK/MCP default — your machine fetches |
+| Per URL (server fetch) | $0.0040 / URL | `fetch_mode="server"` |
+| Spider Fetch (server) | $0.0050 / URL | `/v1/spider` |
+| Chunk Fee | $0.0005 / chunk | All routes |
+| Injection Fee | $0.0030 / chunk | sync, ingest, autorag (vector DB upserts) |
+| Contextual Retrieval | $0.0010 / chunk | When `contextual_retrieval=True` |
+| JS Render | $0.0050 / URL | When `js_render=True` |
+| Schema Extract | $0.0030 + ($0.0001 × field) | Per successfully extracted page |
+| Vector Query | $0.0002 / chunk | `/v1/query`, `/v1/rag-chat` |
+| Inspect Vector DB | Free | `/v1/inspect-vectordb` |
+
+Top up your balance at [scrapedatshi.com/portal/billing](https://scrapedatshi.com/portal/billing).
+
+---
+
+## Hard Caps
+
+Per-request hard caps protect server stability and apply to all accounts:
+
+| Cap | Limit |
+|---|---|
+| Max pages / batch | 200 (auto-batched for larger jobs) |
+| Max chunks / request | 10,000 |
+| Max content size | ~75,000 words (auto-truncated) |
+
+Content exceeding the size limit is automatically truncated — check `result.content_truncated` to detect this.
 
 ---
 
@@ -890,14 +853,14 @@ page.ok         # bool — True if status == "ok"
 
 ```python
 from scrapedatshi.exceptions import (
-    AuthError,              # Invalid or missing API key (401/403)
-    InsufficientCreditsError,  # Balance too low — top up at portal/billing (402)
-    RateLimitError,         # Per-request hard cap or rate limit exceeded (429)
-    ValidationError,        # Bad request payload (422)
-    ServerBusyError,        # Server at capacity — retry after e.retry_after seconds (503)
-    ServerError,            # API server error (5xx)
-    TimeoutError,           # Request timed out
-    ScrapedatshiError       # Base exception — catch-all
+    AuthError,                 # Invalid or missing API key (401/403)
+    InsufficientCreditsError,  # Balance too low (402)
+    RateLimitError,            # Rate limit exceeded (429)
+    ValidationError,           # Bad request payload (422)
+    ServerBusyError,           # Server at capacity — retry after e.retry_after seconds (503)
+    ServerError,               # API server error (5xx)
+    TimeoutError,              # Request timed out
+    ScrapedatshiError          # Base exception — catch-all
 )
 
 try:
@@ -918,22 +881,14 @@ except ScrapedatshiError as e:
 
 #### Handling `ServerBusyError` (503)
 
-Large crawl jobs use a server-side queue. When the queue is full, the API returns HTTP 503 with a `Retry-After` header. The SDK surfaces this as `ServerBusyError` with a `retry_after` attribute:
-
 ```python
 import time
 from scrapedatshi.exceptions import ServerBusyError
 
 try:
-    result = client.pipeline.extract_crawl(
-        url="https://example.com",
-        schema={"title": "string — the page title"},
-        llm_provider="openai",
-        llm_api_key="sk-...",
-        max_pages=50,
-    )
+    result = client.pipeline.extract_crawl(...)
 except ServerBusyError as e:
-    wait = e.retry_after or 30  # seconds to wait (from Retry-After header)
+    wait = e.retry_after or 30
     print(f"Server busy — retrying in {wait}s")
     time.sleep(wait)
     # retry the request...
@@ -941,61 +896,11 @@ except ServerBusyError as e:
 
 ---
 
-## Auto-Batching for Large Sites
-
-When a crawl job exceeds the per-batch page cap (200 pages), the API automatically splits it into sequential batches and processes them all in a single API call. You don't need to do anything — just submit the job and it returns when all batches are complete.
-
-```python
-# This 800-page site will be processed as 4 batches of 200 pages each
-result = client.pipeline.autorag(
-    url="https://large-docs-site.com",
-    max_pages=800,
-    embedding_provider="openai",
-    embedding_api_key="sk-...",
-    vector_db="pinecone",
-    vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
-)
-
-print(f"Crawled {result.pages_crawled} pages → {result.vectors_upserted} vectors")
-if result.auto_batched:
-    print(f"Processed in {result.batches_processed} batches of {result.batch_size} pages each")
-```
-
-Auto-batching applies to: `crawl()`, `autorag()`, and the underlying `/v1/crawl`, `/v1/autorag`, `/v1/crawl-chunk` endpoints.
-
----
-
-## Hard Caps
-
-Per-request hard caps protect server stability and apply to all accounts:
-
-| Cap | Limit |
-|---|---|
-| Max pages / batch | 200 (auto-batched for larger jobs) |
-| Max chunks / request | 10,000 |
-| Max content size | ~75,000 words (auto-truncated) |
-
-**Sitemap crawl** (`crawl_mode="sitemap"`): Reads `sitemap.xml` to discover URLs. Jobs exceeding 200 pages are automatically batched — no manual pagination needed.
-
-**Spider crawl** (`crawl_mode="spider"`): Follows `<a href>` links via BFS. More compute-intensive — start small and increase as needed. Also supports auto-batching.
-
-Content exceeding the size limit is automatically truncated — check `result.content_truncated` to detect this.
-
----
-
 ## Troubleshooting
 
 ### Contextual Retrieval fails — deprecated or unavailable model
 
-LLM providers periodically deprecate older models. When contextual retrieval fails due to a deprecated model, the SDK will emit a `UserWarning` automatically:
-
-```
-UserWarning: scrapedatshi contextual retrieval warning: The model 'models/gemini-2.0-flash'
-is no longer available from Google Gemini. Please select a current model.
-Check available models: https://ai.google.dev/gemini-api/docs/models
-```
-
-You can also check the error programmatically:
+LLM providers periodically deprecate older models. When contextual retrieval fails due to a deprecated model, the SDK will emit a `UserWarning` automatically. Check the error programmatically:
 
 ```python
 result = client.pipeline.chunk_url(
@@ -1009,26 +914,20 @@ if result.contextual_retrieval_error:
     print(f"CR warning: {result.contextual_retrieval_error}")
 ```
 
-**Provider model & deprecation pages** (open in new tab):
+**Provider model & deprecation pages:**
 
-- OpenAI: <a href="https://platform.openai.com/docs/deprecations" target="_blank" rel="noopener noreferrer">platform.openai.com/docs/deprecations</a>
-- Anthropic: <a href="https://docs.anthropic.com/en/docs/about-claude/models" target="_blank" rel="noopener noreferrer">docs.anthropic.com/en/docs/about-claude/models</a>
-- Google Gemini: <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener noreferrer">ai.google.dev/gemini-api/docs/models</a>
-- Cohere: <a href="https://docs.cohere.com/docs/models" target="_blank" rel="noopener noreferrer">docs.cohere.com/docs/models</a>
-- Mistral: <a href="https://docs.mistral.ai/getting-started/models/" target="_blank" rel="noopener noreferrer">docs.mistral.ai/getting-started/models</a>
-- Voyage AI: <a href="https://docs.voyageai.com/docs/embeddings" target="_blank" rel="noopener noreferrer">docs.voyageai.com/docs/embeddings</a>
-
----
+- OpenAI: [platform.openai.com/docs/deprecations](https://platform.openai.com/docs/deprecations)
+- Anthropic: [docs.anthropic.com/en/docs/about-claude/models](https://docs.anthropic.com/en/docs/about-claude/models)
+- Google Gemini: [ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models)
+- Cohere: [docs.cohere.com/docs/models](https://docs.cohere.com/docs/models)
+- Mistral: [docs.mistral.ai/getting-started/models/](https://docs.mistral.ai/getting-started/models/)
+- Voyage AI: [docs.voyageai.com/docs/embeddings](https://docs.voyageai.com/docs/embeddings)
 
 ### Contextual Retrieval fails — quota exceeded
 
-Your LLM provider API key has no remaining credits. The `contextual_retrieval_error` field will contain an actionable message pointing to your provider's billing page. Note that **scrapedatshi credits and LLM provider credits are separate** — you need both.
-
----
+Your LLM provider API key has no remaining credits. Note that **scrapedatshi credits and LLM provider credits are separate** — you need both.
 
 ### Suppressing contextual retrieval warnings
-
-If you handle `contextual_retrieval_error` programmatically and don't want the `UserWarning`, suppress it with Python's standard `warnings` module:
 
 ```python
 import warnings
