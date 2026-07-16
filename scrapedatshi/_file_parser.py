@@ -20,7 +20,9 @@ Supported formats:
     .html, .htm       — HTML stripped to text
     .xml              — XML text content
     .toml, .ini, .cfg — config files (plain text)
-    .py, .js, .ts, .jsx, .tsx, .sql, .go, .rb, .java,
+    .py               — Python (AST-aware: classes + functions as logical units)
+    .sql              — SQL (statement-aware: CREATE/INSERT/SELECT blocks)
+    .js, .ts, .jsx, .tsx, .go, .rb, .java,
     .cs, .cpp, .c, .rs, .php, .sh, .bash, .zsh,
     .r, .swift, .kt, .scala — code files (plain text)
 
@@ -32,6 +34,8 @@ Dependencies:
 
 from __future__ import annotations
 
+import ast
+import re
 from pathlib import Path
 
 # Code and config file extensions — read as plain text
@@ -406,3 +410,249 @@ def _extract_xml_text(path: Path) -> str:
         return "\n".join(texts) if texts else ""
     except Exception:
         return path.read_text(encoding="utf-8", errors="replace")
+
+
+# ── AST-aware Python code extraction ─────────────────────────────────────────
+
+
+def _extract_python_ast_units(source: str) -> list[dict]:
+    """
+    Parse a Python source string with the stdlib ``ast`` module and extract
+    top-level classes and functions as logical units.
+
+    Each unit is a dict with:
+        text        — the source code for that unit (extracted via line slicing)
+        metadata    — {type, name, line_start, line_end, docstring}
+
+    If the source cannot be parsed (syntax error), returns a single unit
+    containing the full source text so the caller can fall back gracefully.
+
+    Nested functions/methods inside a class are included as part of the class
+    unit — they are NOT split out individually.  Only top-level definitions
+    are split.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        # Fallback: treat the whole file as one unit
+        return [
+            {
+                "text": source,
+                "metadata": {
+                    "type": "module",
+                    "name": "<module>",
+                    "line_start": 1,
+                    "line_end": source.count("\n") + 1,
+                    "docstring": None,
+                },
+            }
+        ]
+
+    lines = source.splitlines()
+    units: list[dict] = []
+
+    # Collect top-level import lines so we can prepend them to each unit
+    import_lines: list[str] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            start = node.lineno - 1
+            end = node.end_lineno  # type: ignore[attr-defined]
+            import_lines.extend(lines[start:end])
+
+    import_header = "\n".join(import_lines) + "\n\n" if import_lines else ""
+
+    top_level_defs = [
+        node
+        for node in ast.iter_child_nodes(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+
+    for node in top_level_defs:
+        start = node.lineno - 1
+        end = node.end_lineno  # type: ignore[attr-defined]
+        unit_source = "\n".join(lines[start:end])
+
+        # Extract docstring
+        docstring: str | None = None
+        try:
+            docstring = ast.get_docstring(node)
+        except Exception:
+            pass
+
+        if isinstance(node, ast.ClassDef):
+            unit_type = "class"
+        elif isinstance(node, ast.AsyncFunctionDef):
+            unit_type = "async_function"
+        else:
+            unit_type = "function"
+
+        # Build the text block: imports header + unit source
+        text = import_header + unit_source if import_header else unit_source
+
+        units.append(
+            {
+                "text": text,
+                "metadata": {
+                    "type": unit_type,
+                    "name": node.name,
+                    "line_start": node.lineno,
+                    "line_end": end,
+                    "docstring": docstring,
+                },
+            }
+        )
+
+    if not units:
+        # File has no top-level classes/functions (e.g. a script) — return whole file
+        return [
+            {
+                "text": source,
+                "metadata": {
+                    "type": "module",
+                    "name": "<module>",
+                    "line_start": 1,
+                    "line_end": len(lines),
+                    "docstring": None,
+                },
+            }
+        ]
+
+    return units
+
+
+# ── Statement-aware SQL extraction ────────────────────────────────────────────
+
+# Regex that matches the start of a new SQL statement block
+_SQL_STATEMENT_RE = re.compile(
+    r"^\s*("
+    r"CREATE\s+(OR\s+REPLACE\s+)?(TABLE|VIEW|INDEX|PROCEDURE|FUNCTION|TRIGGER|SCHEMA|DATABASE|SEQUENCE|TYPE)"
+    r"|ALTER\s+(TABLE|VIEW|INDEX|PROCEDURE|FUNCTION|SCHEMA|DATABASE|SEQUENCE|TYPE)"
+    r"|DROP\s+(TABLE|VIEW|INDEX|PROCEDURE|FUNCTION|TRIGGER|SCHEMA|DATABASE|SEQUENCE|TYPE)"
+    r"|INSERT\s+INTO"
+    r"|UPDATE\s+\w"
+    r"|DELETE\s+FROM"
+    r"|SELECT\b"
+    r"|WITH\b"
+    r"|MERGE\b"
+    r"|TRUNCATE\b"
+    r"|GRANT\b"
+    r"|REVOKE\b"
+    r"|COMMENT\s+ON"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _extract_sql_units(source: str) -> list[dict]:
+    """
+    Split a SQL source string into logical statement blocks.
+
+    Uses regex to detect the start of each major SQL statement (CREATE TABLE,
+    INSERT INTO, SELECT, etc.) and groups lines between statement boundaries.
+
+    Each unit is a dict with:
+        text        — the SQL text for that statement block
+        metadata    — {type: "sql_statement", statement_index, statement_type}
+
+    If no statement boundaries are found, returns a single unit with the full
+    source so the caller can fall back gracefully.
+    """
+    lines = source.splitlines(keepends=True)
+    if not lines:
+        return [
+            {
+                "text": source,
+                "metadata": {
+                    "type": "sql_statement",
+                    "statement_index": 0,
+                    "statement_type": "unknown",
+                },
+            }
+        ]
+
+    # Find line indices where a new statement starts
+    boundary_indices: list[int] = []
+    for i, line in enumerate(lines):
+        if _SQL_STATEMENT_RE.match(line):
+            boundary_indices.append(i)
+
+    if not boundary_indices:
+        # No recognisable statement boundaries — return whole file
+        return [
+            {
+                "text": source,
+                "metadata": {
+                    "type": "sql_statement",
+                    "statement_index": 0,
+                    "statement_type": "unknown",
+                },
+            }
+        ]
+
+    # Build statement blocks
+    units: list[dict] = []
+    boundaries = boundary_indices + [len(lines)]  # sentinel
+
+    for idx, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
+        block_lines = lines[start:end]
+        block_text = "".join(block_lines).strip()
+        if not block_text:
+            continue
+
+        # Detect statement type from first non-whitespace keyword
+        first_line = block_lines[0].strip().upper()
+        stmt_type = "unknown"
+        for keyword in (
+            "CREATE TABLE",
+            "CREATE OR REPLACE TABLE",
+            "CREATE VIEW",
+            "CREATE OR REPLACE VIEW",
+            "CREATE PROCEDURE",
+            "CREATE OR REPLACE PROCEDURE",
+            "CREATE FUNCTION",
+            "CREATE OR REPLACE FUNCTION",
+            "CREATE TRIGGER",
+            "CREATE INDEX",
+            "ALTER TABLE",
+            "ALTER VIEW",
+            "DROP TABLE",
+            "DROP VIEW",
+            "INSERT INTO",
+            "UPDATE",
+            "DELETE FROM",
+            "SELECT",
+            "WITH",
+            "MERGE",
+            "TRUNCATE",
+            "GRANT",
+            "REVOKE",
+        ):
+            if first_line.startswith(keyword):
+                stmt_type = keyword.lower().replace(" ", "_")
+                break
+
+        units.append(
+            {
+                "text": block_text,
+                "metadata": {
+                    "type": "sql_statement",
+                    "statement_index": idx,
+                    "statement_type": stmt_type,
+                },
+            }
+        )
+
+    return (
+        units
+        if units
+        else [
+            {
+                "text": source,
+                "metadata": {
+                    "type": "sql_statement",
+                    "statement_index": 0,
+                    "statement_type": "unknown",
+                },
+            }
+        ]
+    )

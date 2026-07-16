@@ -163,6 +163,8 @@ print(f"Got {result.total_chunks} chunks from PDF")
 
 Supports PDF, MD, TXT, YAML, YML, JSON, CSV, XLSX, DOCX, IPYNB, HTML, XML, and all common code files (.py, .js, .ts, .sql, .go, .rb, .java, etc.). In local-fetch mode (default), the file is parsed on **your machine** — no heavy PDF processing on our server.
 
+Python (`.py`) and SQL (`.sql`) files are parsed with **code-aware chunking** — see [Code-Aware Chunking](#code-aware-chunking) below.
+
 ```python
 result = client.pipeline.chunk_file("./docs/manual.pdf")
 print(f"Got {result.total_chunks} chunks from {result.source}")
@@ -731,6 +733,7 @@ chunk.token_estimate       # int — estimated token count
 chunk.original_text        # str | None — raw text before CR enrichment
 chunk.context              # str | None — LLM-generated per-chunk context
 chunk.metadata             # dict — source URL, page number, etc.
+chunk.code_metadata        # dict | None — set for .py/.sql files (see Code-Aware Chunking)
 ```
 
 ### `CrawlChunkResult`
@@ -939,6 +942,53 @@ with warnings.catch_warnings():
         contextual_retrieval=True,
         ...
     )
+```
+
+---
+
+## Code-Aware Chunking
+
+When ingesting `.py` or `.sql` files via `chunk_file()`, `ingest()`, or `ingest_folder()`, the SDK uses **AST/statement-aware splitting** instead of treating the file as a plain text blob. This produces semantically meaningful chunks that align with logical code boundaries.
+
+### Python (`.py`) — AST-aware
+
+Uses Python's stdlib `ast` module to extract **top-level classes and functions** as individual units. Each unit includes the relevant import statements prepended as context.
+
+```python
+result = client.pipeline.chunk_file("./src/models.py")
+# → Each class and top-level function becomes its own chunk
+# → Imports are prepended to each unit for context
+```
+
+**Fallback:** If the file has a syntax error, the whole file is treated as a single plain-text chunk.
+
+**What gets split:**
+- Top-level `class` definitions (including all their methods)
+- Top-level `def` and `async def` functions
+- Files with no top-level definitions (e.g. pure scripts) → single chunk
+
+### SQL (`.sql`) — Statement-aware
+
+Uses regex to detect the start of each major SQL statement and groups lines between boundaries.
+
+```python
+result = client.pipeline.chunk_file("./schema.sql")
+# → Each CREATE TABLE, CREATE FUNCTION, INSERT INTO, SELECT, etc. becomes its own chunk
+```
+
+**Recognised statement types:** `CREATE TABLE`, `CREATE VIEW`, `CREATE PROCEDURE`, `CREATE FUNCTION`, `CREATE TRIGGER`, `CREATE INDEX`, `ALTER TABLE`, `DROP TABLE`, `INSERT INTO`, `UPDATE`, `DELETE FROM`, `SELECT`, `WITH`, `MERGE`, `TRUNCATE`, `GRANT`, `REVOKE`.
+
+**Fallback:** If no statement boundaries are found, the whole file is treated as a single chunk.
+
+### Fragment URLs
+
+Each logical unit gets a unique fragment appended to its source URL so you can trace chunks back to their origin:
+
+```
+file://models.py#UserModel          ← Python class
+file://models.py#get_user           ← Python function
+file://schema.sql#create_table_0    ← first CREATE TABLE
+file://schema.sql#create_table_1    ← second CREATE TABLE
 ```
 
 ---

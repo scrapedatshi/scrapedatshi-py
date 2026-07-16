@@ -64,6 +64,16 @@ class Chunk(BaseModel):
         default_factory=dict,
         description="Arbitrary metadata attached to this chunk (source URL, page number, etc.).",
     )
+    code_metadata: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Code-specific metadata populated when the chunk was produced from a "
+            "Python or SQL file using AST/statement-aware splitting. "
+            "For Python: {language, type, name, line_start, line_end, docstring}. "
+            "For SQL: {language, type, statement_index, statement_type}. "
+            "None for all other file types."
+        ),
+    )
 
     def __len__(self) -> int:
         return len(self.content)

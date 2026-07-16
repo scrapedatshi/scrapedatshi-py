@@ -14,8 +14,10 @@ Supports the following file types for ingest_folder():
     .html, .htm               — HTML (stripped to text)
     .xml                      — XML text content
     .toml, .ini, .cfg         — config files (plain text)
-    .py, .js, .ts, .jsx, .tsx — code files (plain text)
-    .sql, .go, .rb, .java     — code files (plain text)
+    .py                       — Python (AST-aware: classes + functions as logical units)
+    .sql                      — SQL (statement-aware: CREATE/INSERT/SELECT blocks)
+    .js, .ts, .jsx, .tsx      — code files (plain text)
+    .go, .rb, .java           — code files (plain text)
     .cs, .cpp, .c, .rs, .php  — code files (plain text)
     .sh, .bash, .zsh          — shell scripts (plain text)
     .r, .swift, .kt, .scala   — code files (plain text)
@@ -32,7 +34,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scrapedatshi.client import ScrapedatshiClient
 
-from scrapedatshi._file_parser import _guess_source_type
+from scrapedatshi._file_parser import (
+    _extract_python_ast_units,
+    _extract_sql_units,
+    _guess_source_type,
+)
 from scrapedatshi.models import IngestFolderResult
 
 # ── Supported extensions ──────────────────────────────────────────────────────
@@ -314,6 +320,47 @@ def _extract_text_from_file(
                 if elem.text and elem.text.strip()
             ]
             return [("\n".join(texts), source_url)] if texts else [("", source_url)]
+        except Exception:
+            return [(path.read_text(encoding="utf-8", errors="replace"), source_url)]
+
+    # ── Python — AST-aware: one (text, url) tuple per top-level class/function
+    elif ext == ".py":
+        try:
+            source = path.read_text(encoding="utf-8", errors="replace")
+            units = _extract_python_ast_units(source)
+            results_py: list[tuple[str, str]] = []
+            for unit in units:
+                unit_text = unit["text"]
+                if not unit_text.strip():
+                    continue
+                meta = unit["metadata"]
+                unit_name = meta.get("name", "")
+                # Build a fragment URL: file://filename.py#ClassName or #function_name
+                if unit_name and unit_name != "<module>":
+                    unit_url = f"{source_url}#{unit_name}"
+                else:
+                    unit_url = source_url
+                results_py.append((unit_text, unit_url))
+            return results_py if results_py else [(source, source_url)]
+        except Exception:
+            return [(path.read_text(encoding="utf-8", errors="replace"), source_url)]
+
+    # ── SQL — statement-aware: one (text, url) tuple per statement block ──────
+    elif ext == ".sql":
+        try:
+            source = path.read_text(encoding="utf-8", errors="replace")
+            units = _extract_sql_units(source)
+            results_sql: list[tuple[str, str]] = []
+            for unit in units:
+                unit_text = unit["text"]
+                if not unit_text.strip():
+                    continue
+                meta = unit["metadata"]
+                idx = meta.get("statement_index", 0)
+                stmt_type = meta.get("statement_type", "statement")
+                unit_url = f"{source_url}#{stmt_type}_{idx}"
+                results_sql.append((unit_text, unit_url))
+            return results_sql if results_sql else [(source, source_url)]
         except Exception:
             return [(path.read_text(encoding="utf-8", errors="replace"), source_url)]
 
