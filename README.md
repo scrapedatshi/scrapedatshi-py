@@ -53,7 +53,7 @@ my-project/
     ├── 03_crawl_site.py
     ├── 04_sync_to_vdb.py
     ├── 05_ingest_file.py
-    ├── 06_ingest_folder.py
+    ├── 06_ingest_scraped.py
     ├── 07_autorag.py
     ├── 08_schema_extract.py
     ├── 09_extract_crawl.py
@@ -287,12 +287,12 @@ result = client.pipeline.ingest(
 print(f"Ingested {result.chunks_created} chunks → {result.vectors_upserted} vectors")
 ```
 
-### Ingest a folder (bulk import) — v0.11.0+
+### Ingest scraped output (bulk import) — v0.11.0+
 
-Bulk-ingest an entire folder of pre-scraped files into your vector database. Works with output from most scrapers — Scrapy, Playwright, Apify, custom scripts, and more. Supports `.md`, `.txt`, `.json`, `.yaml`, and `.yml`. JSON arrays are automatically detected and each item is extracted and ingested individually.
+Bulk-ingest an entire folder of pre-scraped files into your vector database. Designed for output from web scrapers (Scrapy, Playwright, Apify, custom scripts). Supports all common file types including `.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`, `.xlsx`, `.docx`, `.py`, `.sql`, and more. JSON arrays are automatically detected and each item is extracted and ingested individually.
 
 ```python
-result = client.pipeline.ingest_folder(
+result = client.pipeline.ingest_scraped(
     folder_path="./scraped_output/",
     embedding_provider="openai",
     embedding_api_key="sk-...",
@@ -310,7 +310,7 @@ for err in result.errors:
     print(f"  ✗ {err['file']} — {err['error']}")
 
 # Restrict to specific file types + add delay between files
-result = client.pipeline.ingest_folder(
+result = client.pipeline.ingest_scraped(
     folder_path="./",
     file_extensions=[".json"],   # only process JSON files
     batch_delay=1.0,             # 1s pause between files (rate limit safety)
@@ -322,7 +322,7 @@ result = client.pipeline.ingest_folder(
 )
 
 # Async version
-result = await client.pipeline.ingest_folder_async(
+result = await client.pipeline.ingest_scraped_async(
     folder_path="./docs/",
     embedding_provider="openai",
     embedding_api_key="sk-...",
@@ -332,7 +332,7 @@ result = await client.pipeline.ingest_folder_async(
 )
 ```
 
-**`IngestFolderResult` model:**
+**`IngestScrapedResult` model:**
 
 ```python
 result.files_processed      # int — number of files successfully ingested
@@ -760,7 +760,7 @@ result.credits_used        # float
 result.credits_remaining   # float
 ```
 
-### `IngestFolderResult`
+### `IngestScrapedResult`
 
 ```python
 result.files_processed      # int

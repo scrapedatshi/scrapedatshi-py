@@ -7,7 +7,7 @@ Accessed via ``client.pipeline.*``
 
 This class composes all pipeline methods via mixins:
     ChunkMixin   — chunk_url, chunk_file, crawl
-    IngestMixin  — ingest, ingest_folder
+    IngestMixin  — ingest, ingest_scraped
     SyncMixin    — sync, autorag
     ExtractMixin — extract, extract_crawl
     QueryMixin   — inspect_vectordb, query_vectordb, rag_chat
@@ -39,7 +39,7 @@ class PipelineNamespace(ChunkMixin, IngestMixin, SyncMixin, ExtractMixin, QueryM
     Full Pipeline (embed + vector DB inject):
         - sync()             / sync_async()
         - ingest()           / ingest_async()
-        - ingest_folder()    / ingest_folder_async()
+        - ingest_scraped()   / ingest_scraped_async()
         - autorag()          / autorag_async()
 
     Schema Extraction:

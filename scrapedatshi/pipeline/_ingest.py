@@ -1,7 +1,7 @@
 """
 scrapedatshi.pipeline._ingest
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Ingest methods: ingest (single file) and ingest_folder (bulk).
+Ingest methods: ingest (single file) and ingest_scraped (bulk scraper output).
 
 Requires embedding provider + vector DB keys.
 """
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scrapedatshi.client import ScrapedatshiClient
 
-from scrapedatshi.models import IngestFolderResult, IngestResult
+from scrapedatshi.models import IngestScrapedResult, IngestResult
 from scrapedatshi.pipeline._ingest_helpers import (
     _INGEST_FOLDER_EXTENSIONS,
     _JSON_TEXT_KEYS,
@@ -25,7 +25,7 @@ from scrapedatshi.pipeline._ingest_helpers import (
 
 
 class IngestMixin:
-    """Mixin providing ingest and ingest_folder methods."""
+    """Mixin providing ingest and ingest_scraped methods."""
 
     _client: "ScrapedatshiClient"
 
@@ -170,9 +170,9 @@ class IngestMixin:
             credits_remaining=float(data.get("credits_remaining", 0.0)),
         )
 
-    # ── Full Pipeline — Folder Ingest ─────────────────────────────────────────
+    # ── Full Pipeline — Scraped Output Ingest ────────────────────────────────
 
-    def ingest_folder(
+    def ingest_scraped(
         self,
         folder_path: str | Path,
         *,
@@ -189,18 +189,22 @@ class IngestMixin:
         max_files: int | None = None,
         batch_delay: float = 0.5,
         json_text_keys: list[str] | None = None,
-    ) -> IngestFolderResult:
+    ) -> IngestScrapedResult:
         """
-        Bulk ingest an entire folder of files — chunk, embed, and inject into a vector DB.
+        Bulk ingest a folder of pre-scraped files — chunk, embed, and inject into a vector DB.
 
-        Works with output from most scrapers — Scrapy, Playwright, Apify, custom scripts.
+        Designed for output from web scrapers (Scrapy, Playwright, Apify, custom scripts).
+        Each file is parsed locally, chunked, embedded, and injected individually.
 
         Supported file types: .md, .txt, .json, .yaml, .yml, .csv, .xlsx, .xls,
         .docx, .ipynb, .html, .htm, .xml, .toml, .ini, .cfg, and all common code
         file types (.py, .js, .ts, .sql, .go, .rb, .java, .cs, .cpp, .c, .rs, etc.)
 
-        JSON arrays are automatically detected and each item is extracted and
-        ingested individually (Scrapy/crawler output format).
+        Special handling:
+        - JSON arrays are automatically detected and each item is extracted and
+          ingested individually (Scrapy/crawler output format).
+        - .py files are split by top-level class/function (AST-aware).
+        - .sql files are split by statement block (CREATE TABLE, SELECT, etc.).
         """
         path = Path(folder_path)
         if not path.is_dir():
@@ -227,7 +231,7 @@ class IngestMixin:
             json_text_keys=keys,
         )
 
-    async def ingest_folder_async(
+    async def ingest_scraped_async(
         self,
         folder_path: str | Path,
         *,
@@ -244,8 +248,8 @@ class IngestMixin:
         max_files: int | None = None,
         batch_delay: float = 0.5,
         json_text_keys: list[str] | None = None,
-    ) -> IngestFolderResult:
-        """Async version of :meth:`ingest_folder`."""
+    ) -> IngestScrapedResult:
+        """Async version of :meth:`ingest_scraped`."""
         path = Path(folder_path)
         if not path.is_dir():
             raise ValueError(f"folder_path must be a directory: {folder_path}")

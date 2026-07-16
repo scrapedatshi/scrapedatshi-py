@@ -3,7 +3,7 @@ scrapedatshi.pipeline._ingest_helpers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Folder ingestion engine and file text extraction.
 
-Supports the following file types for ingest_folder():
+Supports the following file types for ingest_scraped():
     .md, .txt, .text          — plain text / markdown
     .json                     — JSON (with Scrapy array detection)
     .yaml, .yml               — YAML
@@ -39,7 +39,7 @@ from scrapedatshi._file_parser import (
     _extract_sql_units,
     _guess_source_type,
 )
-from scrapedatshi.models import IngestFolderResult
+from scrapedatshi.models import IngestScrapedResult
 
 # ── Supported extensions ──────────────────────────────────────────────────────
 
@@ -389,7 +389,7 @@ def _ingest_folder_locally(
     max_files: int | None,
     batch_delay: float,
     json_text_keys: tuple[str, ...],
-) -> "IngestFolderResult":
+) -> "IngestScrapedResult":
     """
     Synchronous folder ingestion loop.
 
@@ -527,7 +527,7 @@ def _ingest_folder_locally(
         if batch_delay > 0:
             time.sleep(batch_delay)
 
-    return IngestFolderResult(
+    return IngestScrapedResult(
         files_processed=files_processed,
         files_failed=files_failed,
         total_chunks=total_chunks,
@@ -557,7 +557,7 @@ async def _ingest_folder_locally_async(
     max_files: int | None,
     batch_delay: float,
     json_text_keys: tuple[str, ...],
-) -> "IngestFolderResult":
+) -> "IngestScrapedResult":
     """Async version of :func:`_ingest_folder_locally`."""
     import asyncio as _asyncio
     import json as _json
@@ -694,7 +694,7 @@ async def _ingest_folder_locally_async(
         if batch_delay > 0:
             await _asyncio.sleep(batch_delay)
 
-    return IngestFolderResult(
+    return IngestScrapedResult(
         files_processed=files_processed,
         files_failed=files_failed,
         total_chunks=total_chunks,

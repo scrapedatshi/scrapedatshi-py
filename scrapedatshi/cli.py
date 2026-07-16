@@ -94,7 +94,7 @@ one scrapedatshi pipeline method — just fill in your targets and keys, then ru
 | `03_crawl_site.py` | Crawl an entire site and chunk all pages |
 | `04_sync_to_vdb.py` | Scrape URL → embed → inject into vector DB |
 | `05_ingest_file.py` | Local file → embed → inject into vector DB |
-| `06_ingest_folder.py` | Bulk-ingest a folder of pre-scraped files |
+| `06_ingest_scraped.py` | Bulk-ingest a folder of pre-scraped files |
 | `07_autorag.py` | Crawl entire site → embed → inject into vector DB |
 | `08_schema_extract.py` | Extract structured JSON from a URL using your LLM |
 | `09_extract_crawl.py` | Multi-page schema extraction via site crawl |
@@ -416,7 +416,12 @@ _EXAMPLES["05_ingest_file.py"] = '''\
 """
 05_ingest_file.py — Parse a local file → embed → inject into your vector database.
 
-Supports: .pdf, .md, .txt, .yaml, .yml, .json
+Supports: .pdf, .md, .txt, .yaml, .yml, .json, .csv, .xlsx, .xls, .docx,
+          .ipynb, .html, .htm, .xml, .toml, .ini, .cfg,
+          .py (AST-aware: split by class/function),
+          .sql (statement-aware: split by CREATE/INSERT/SELECT blocks),
+          .js, .ts, .jsx, .tsx, .go, .rb, .java, .cs, .cpp, .c, .rs, .php,
+          .sh, .bash, .zsh, .r, .swift, .kt, .scala
 Requires embedding + vector DB keys.
 """
 
@@ -471,13 +476,22 @@ print(f"Credits used:    ${result.credits_used:.4f}")
 print(f"Remaining:       ${result.credits_remaining:.4f}")
 '''
 
-_EXAMPLES["06_ingest_folder.py"] = '''\
+_EXAMPLES["06_ingest_scraped.py"] = '''\
 """
-06_ingest_folder.py — Bulk-ingest a folder of pre-scraped files into your vector DB.
+06_ingest_scraped.py — Bulk-ingest a folder of pre-scraped files into your vector DB.
 
-Works with output from most scrapers — Scrapy, Playwright, Apify, custom scripts.
-Supports: .md, .txt, .json, .yaml, .yml
-JSON arrays are automatically detected and each item ingested individually.
+Designed for output from web scrapers (Scrapy, Playwright, Apify, custom scripts).
+Each file is parsed locally, chunked, embedded, and injected individually.
+
+Supports: .md, .txt, .json, .yaml, .yml, .csv, .xlsx, .xls, .docx,
+          .ipynb, .html, .htm, .xml, .toml, .ini, .cfg,
+          .py (AST-aware: split by class/function),
+          .sql (statement-aware: split by CREATE/INSERT/SELECT blocks),
+          .js, .ts, .jsx, .tsx, .go, .rb, .java, .cs, .cpp, .c, .rs, .php,
+          .sh, .bash, .zsh, .r, .swift, .kt, .scala
+
+JSON arrays are automatically detected and each item ingested individually
+(Scrapy/crawler output format).
 """
 
 import os
@@ -508,7 +522,7 @@ VECTOR_DB_CONFIG = {
 
 client = ScrapedatshiClient()
 
-result = client.pipeline.ingest_folder(
+result = client.pipeline.ingest_scraped(
     folder_path=FOLDER_PATH,
     embedding_provider=EMBEDDING_PROVIDER,
     embedding_api_key=EMBEDDING_API_KEY,

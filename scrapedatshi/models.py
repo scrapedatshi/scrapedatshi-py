@@ -296,16 +296,17 @@ class IngestResult(BaseModel):
         )
 
 
-class IngestFolderResult(BaseModel):
+class IngestScrapedResult(BaseModel):
     """
-    Response from pipeline.ingest_folder() — bulk folder ingestion pipeline.
+    Response from pipeline.ingest_scraped() — bulk scraper output ingestion pipeline.
 
+    Designed for ingesting output from web scrapers (Scrapy, Playwright, Apify, etc.).
     Accumulates results across all files in the folder. Files that fail
     are recorded in ``errors`` and are not charged.
 
     Example::
 
-        result = client.pipeline.ingest_folder(
+        result = client.pipeline.ingest_scraped(
             folder_path="./scrapy_output/",
             embedding_provider="openai",
             embedding_api_key="sk-...",
@@ -354,7 +355,7 @@ class IngestFolderResult(BaseModel):
 
     def __repr__(self) -> str:
         return (
-            f"IngestFolderResult("
+            f"IngestScrapedResult("
             f"files_processed={self.files_processed}, "
             f"files_failed={self.files_failed}, "
             f"total_chunks={self.total_chunks}, "
