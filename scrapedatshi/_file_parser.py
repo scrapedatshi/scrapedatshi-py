@@ -4,29 +4,64 @@ scrapedatshi._file_parser
 Local file text extraction helpers.
 
 These functions run on the CLIENT machine — not on the scrapedatshi server.
-They extract plain text from local files (PDF, MD, TXT, YAML, JSON) so the
-heavy CPU work (PDF parsing, OCR) stays off the server.
-
-The extracted text is then submitted to /v1/process-text for chunking.
+They extract plain text from local files so the heavy CPU work stays off
+the server. The extracted text is then submitted to /v1/process-text for
+chunking.
 
 Supported formats:
-    .pdf   — pdfplumber (text layer) with basic fallback
-    .md    — read as-is (already markdown)
-    .txt   — read as-is
-    .yaml / .yml — YAML → formatted text
-    .json  — JSON → formatted text
+    .pdf              — pdfplumber (text layer) with basic fallback
+    .md, .txt, .text  — read as-is
+    .yaml, .yml       — YAML → formatted text
+    .json             — JSON → formatted text
+    .csv              — CSV rows → text blocks
+    .xlsx, .xls       — Excel sheets → text (requires openpyxl)
+    .docx             — Word documents (requires python-docx)
+    .ipynb            — Jupyter notebooks (code + markdown cells)
+    .html, .htm       — HTML stripped to text
+    .xml              — XML text content
+    .toml, .ini, .cfg — config files (plain text)
+    .py, .js, .ts, .jsx, .tsx, .sql, .go, .rb, .java,
+    .cs, .cpp, .c, .rs, .php, .sh, .bash, .zsh,
+    .r, .swift, .kt, .scala — code files (plain text)
 
 Dependencies:
-    pdfplumber is required for PDF extraction.  It is listed as an optional
-    dependency of scrapedatshi — install it with:
-        pip install scrapedatshi[pdf]
-    or directly:
-        pip install pdfplumber
+    pdfplumber is required for PDF extraction.
+    openpyxl is required for .xlsx/.xls extraction.
+    python-docx is required for .docx extraction.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+# Code and config file extensions — read as plain text
+_CODE_EXTENSIONS = {
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".sql",
+    ".go",
+    ".rb",
+    ".java",
+    ".cs",
+    ".cpp",
+    ".c",
+    ".rs",
+    ".php",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".r",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".text",
+}
 
 
 def _guess_source_type(path: Path) -> str:
@@ -36,10 +71,21 @@ def _guess_source_type(path: Path) -> str:
         ".pdf": "pdf",
         ".md": "markdown",
         ".txt": "text",
+        ".text": "text",
         ".yaml": "yaml",
         ".yml": "yaml",
         ".json": "json",
+        ".csv": "csv",
+        ".xlsx": "excel",
+        ".xls": "excel",
+        ".docx": "docx",
+        ".ipynb": "notebook",
+        ".html": "html",
+        ".htm": "html",
+        ".xml": "xml",
     }
+    if ext in _CODE_EXTENSIONS:
+        return "code"
     return mapping.get(ext, "text")
 
 
@@ -47,7 +93,7 @@ def _extract_file_text_locally(path: Path) -> str:
     """
     Extract plain text from a local file using the client's own CPU.
 
-    Supports: .pdf, .md, .txt, .yaml, .yml, .json
+    Supports all common document, spreadsheet, notebook, and code file types.
 
     Args:
         path: Path to the local file.
@@ -56,28 +102,33 @@ def _extract_file_text_locally(path: Path) -> str:
         Extracted text as a string.
 
     Raises:
-        ValueError: If the file format is unsupported or extraction fails.
-        ImportError: If pdfplumber is not installed (for PDF files).
+        ImportError: If a required optional dependency is not installed.
     """
     ext = path.suffix.lower()
 
     if ext == ".pdf":
         return _extract_pdf_text(path)
-    elif ext in (".md", ".txt"):
+    elif ext in (".md", ".txt", ".text"):
         return path.read_text(encoding="utf-8", errors="replace")
     elif ext in (".yaml", ".yml"):
         return _extract_yaml_text(path)
     elif ext == ".json":
         return _extract_json_text(path)
+    elif ext == ".csv":
+        return _extract_csv_text(path)
+    elif ext in (".xlsx", ".xls"):
+        return _extract_excel_text(path)
+    elif ext == ".docx":
+        return _extract_docx_text(path)
+    elif ext == ".ipynb":
+        return _extract_notebook_text(path)
+    elif ext in (".html", ".htm"):
+        return _extract_html_text(path)
+    elif ext == ".xml":
+        return _extract_xml_text(path)
     else:
-        # Try reading as plain text for unknown extensions
-        try:
-            return path.read_text(encoding="utf-8", errors="replace")
-        except Exception as exc:
-            raise ValueError(
-                f"Unsupported file format '{ext}'. "
-                "Supported: .pdf, .md, .txt, .yaml, .yml, .json"
-            ) from exc
+        # Code files, config files, and any other text-based format
+        return path.read_text(encoding="utf-8", errors="replace")
 
 
 def _extract_pdf_text(path: Path) -> str:
@@ -212,5 +263,146 @@ def _extract_json_text(path: Path) -> str:
     try:
         data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
         return json.dumps(data, indent=2, ensure_ascii=False)
+    except Exception:
+        return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _extract_csv_text(path: Path) -> str:
+    """Extract text from a CSV file — converts rows to readable text blocks."""
+    try:
+        import csv
+        import io
+
+        text = path.read_text(encoding="utf-8", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        rows = list(reader)
+        if not rows:
+            return text
+        lines: list[str] = []
+        for i, row in enumerate(rows, 1):
+            row_text = " | ".join(f"{k}: {v}" for k, v in row.items() if v)
+            if row_text.strip():
+                lines.append(f"Row {i}: {row_text}")
+        return "\n".join(lines) if lines else text
+    except Exception:
+        return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _extract_excel_text(path: Path) -> str:
+    """Extract text from an Excel file (.xlsx/.xls). Requires openpyxl."""
+    try:
+        import openpyxl  # type: ignore
+
+        wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+        all_text: list[str] = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            sheet_lines: list[str] = [f"## Sheet: {sheet_name}"]
+            for row in ws.iter_rows(values_only=True):
+                row_text = " | ".join(str(cell) for cell in row if cell is not None)
+                if row_text.strip():
+                    sheet_lines.append(row_text)
+            if len(sheet_lines) > 1:
+                all_text.append("\n".join(sheet_lines))
+        wb.close()
+        return "\n\n".join(all_text) if all_text else ""
+    except ImportError:
+        raise ImportError(
+            "openpyxl is required for Excel file extraction. "
+            "Install it with: pip install openpyxl"
+        )
+    except Exception as exc:
+        return f"[Excel parse error: {exc}]"
+
+
+def _extract_docx_text(path: Path) -> str:
+    """Extract text from a Word document (.docx). Requires python-docx."""
+    try:
+        import docx  # type: ignore
+
+        doc = docx.Document(str(path))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join(
+                    cell.text.strip() for cell in row.cells if cell.text.strip()
+                )
+                if row_text:
+                    paragraphs.append(row_text)
+        return "\n\n".join(paragraphs) if paragraphs else ""
+    except ImportError:
+        raise ImportError(
+            "python-docx is required for Word document extraction. "
+            "Install it with: pip install python-docx"
+        )
+    except Exception as exc:
+        return f"[DOCX parse error: {exc}]"
+
+
+def _extract_notebook_text(path: Path) -> str:
+    """Extract text from a Jupyter notebook (.ipynb)."""
+    try:
+        import json as _json
+
+        nb = _json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        cells = nb.get("cells", [])
+        blocks: list[str] = []
+        for cell in cells:
+            cell_type = cell.get("cell_type", "")
+            source = cell.get("source", [])
+            if isinstance(source, list):
+                source = "".join(source)
+            if not source.strip():
+                continue
+            if cell_type == "markdown":
+                blocks.append(source)
+            elif cell_type == "code":
+                blocks.append(f"```python\n{source}\n```")
+        return "\n\n".join(blocks) if blocks else ""
+    except Exception:
+        return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _extract_html_text(path: Path) -> str:
+    """Extract plain text from an HTML file (strips tags)."""
+    try:
+        from html.parser import HTMLParser
+
+        class _TextExtractor(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self._parts: list[str] = []
+                self._skip = False
+
+            def handle_starttag(self, tag: str, attrs: list) -> None:
+                if tag in ("script", "style"):
+                    self._skip = True
+
+            def handle_endtag(self, tag: str) -> None:
+                if tag in ("script", "style"):
+                    self._skip = False
+
+            def handle_data(self, data: str) -> None:
+                if not self._skip and data.strip():
+                    self._parts.append(data.strip())
+
+        extractor = _TextExtractor()
+        extractor.feed(path.read_text(encoding="utf-8", errors="replace"))
+        return " ".join(extractor._parts)
+    except Exception:
+        return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _extract_xml_text(path: Path) -> str:
+    """Extract text content from an XML file."""
+    try:
+        from xml.etree import ElementTree as ET
+
+        tree = ET.parse(str(path))
+        root = tree.getroot()
+        texts = [
+            elem.text.strip() for elem in root.iter() if elem.text and elem.text.strip()
+        ]
+        return "\n".join(texts) if texts else ""
     except Exception:
         return path.read_text(encoding="utf-8", errors="replace")

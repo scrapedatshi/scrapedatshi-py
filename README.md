@@ -161,7 +161,7 @@ print(f"Got {result.total_chunks} chunks from PDF")
 
 ### Chunk a local file
 
-Supports PDF, MD, TXT, YAML, YML, and JSON. In local-fetch mode (default), the file is parsed on **your machine** — no heavy PDF processing on our server.
+Supports PDF, MD, TXT, YAML, YML, JSON, CSV, XLSX, DOCX, IPYNB, HTML, XML, and all common code files (.py, .js, .ts, .sql, .go, .rb, .java, etc.). In local-fetch mode (default), the file is parsed on **your machine** — no heavy PDF processing on our server.
 
 ```python
 result = client.pipeline.chunk_file("./docs/manual.pdf")

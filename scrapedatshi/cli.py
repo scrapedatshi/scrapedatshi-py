@@ -237,12 +237,20 @@ _EXAMPLES["02_chunk_file.py"] = '''\
 """
 02_chunk_file.py — Parse a local file and chunk it into RAG-ready segments.
 
-Supports: .pdf, .md, .txt, .yaml, .yml, .json
+Supports: .pdf, .md, .txt, .yaml, .yml, .json, .csv, .xlsx, .xls, .docx,
+          .ipynb, .html, .htm, .xml, .toml, .ini, .cfg,
+          .py, .js, .ts, .jsx, .tsx, .sql, .go, .rb, .java, .cs, .cpp,
+          .c, .rs, .php, .sh, .bash, .zsh, .r, .swift, .kt, .scala
 No vector DB or embedding key required.
 
 Fetch mode note:
   local (default) — file parsed on your machine, text sent to server for chunking
   server          — file sent to our server for parsing + OCR (use for scanned PDFs)
+
+Optional extras for Excel/Word parsing:
+  pip install scrapedatshi[excel]       # for .xlsx/.xls
+  pip install scrapedatshi[docx]        # for .docx
+  pip install scrapedatshi[all-parsers] # for both
 """
 
 import os
