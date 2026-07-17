@@ -192,6 +192,7 @@ _EXAMPLES["01_chunk_url.py"] = '''\
 No vector DB or embedding key required — just your scrapedatshi API key.
 """
 
+import json
 import os
 from dotenv import load_dotenv
 from scrapedatshi import ScrapedatshiClient
@@ -217,22 +218,54 @@ URL = "https://docs.example.com"   # ← EDIT: the URL to scrape
 # LLM_PROVIDER = "openai"         # "openai", "anthropic", or "gemini"
 # LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
 # LLM_MODEL    = "gpt-4o-mini"
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Chunks are saved as JSON next to this script. The filename auto-increments
+# if it already exists (chunks.json → chunks(1).json → chunks(2).json).
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.json"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chunks.json")
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
 
 client = ScrapedatshiClient()  # reads SCRAPEDATSHI_API_KEY from .env
 
 result = client.pipeline.chunk_url(URL)
 
+# ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"URL:          {result.source}")
 print(f"Chunks:       {result.total_chunks}")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
-print()
 
-for i, chunk in enumerate(result.chunks, 1):
-    print(f"── Chunk {i} ({chunk.token_estimate} tokens) ──")
-    print(chunk.content[:300])
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"content": c.content, "token_estimate": c.token_estimate} for c in result.chunks],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.total_chunks} chunks → {out}")
+else:
     print()
+    for i, chunk in enumerate(result.chunks, 1):
+        print(f"── Chunk {i} ({chunk.token_estimate} tokens) ──")
+        print(chunk.content[:300])
+        print()
 '''
 
 _EXAMPLES["02_chunk_file.py"] = '''\
@@ -255,6 +288,7 @@ Optional extras for Excel/Word parsing:
   pip install scrapedatshi[all-parsers] # for both
 """
 
+import json
 import os
 from dotenv import load_dotenv
 from scrapedatshi import ScrapedatshiClient
@@ -276,22 +310,54 @@ FILE_PATH = "./docs/manual.pdf"    # ← EDIT: path to your local file
 
 # For scanned/image-only PDFs that need OCR — switch to server fetch
 # client = ScrapedatshiClient(fetch_mode="server")
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Chunks are saved as JSON next to this script. The filename auto-increments
+# if it already exists (chunks.json → chunks(1).json → chunks(2).json).
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.json"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chunks.json")
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
 
 client = ScrapedatshiClient()
 
 result = client.pipeline.chunk_file(FILE_PATH)
 
+# ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"File:         {result.source}")
 print(f"Chunks:       {result.total_chunks}")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
-print()
 
-for i, chunk in enumerate(result.chunks, 1):
-    print(f"── Chunk {i} ({chunk.token_estimate} tokens) ──")
-    print(chunk.content[:300])
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"content": c.content, "token_estimate": c.token_estimate} for c in result.chunks],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.total_chunks} chunks → {out}")
+else:
     print()
+    for i, chunk in enumerate(result.chunks, 1):
+        print(f"── Chunk {i} ({chunk.token_estimate} tokens) ──")
+        print(chunk.content[:300])
+        print()
 '''
 
 _EXAMPLES["03_crawl_site.py"] = '''\
@@ -308,6 +374,7 @@ Dependencies:
   pip install python-dotenv
 """
 
+import json
 import os
 from dotenv import load_dotenv
 from scrapedatshi import ScrapedatshiClient
@@ -338,7 +405,28 @@ CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
 # LLM_PROVIDER = "openai"               # "openai", "anthropic", or "gemini"
 # LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
 # LLM_MODEL    = "gpt-4o-mini"
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Chunks are saved as JSON next to this script. The filename auto-increments
+# if it already exists (crawl.json → crawl(1).json → crawl(2).json).
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.json"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crawl.json")
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
 
 client = ScrapedatshiClient()
 
@@ -354,17 +442,28 @@ result = client.pipeline.crawl(
     # allow_subdomains=ALLOW_SUBDOMAINS,
 )
 
+# ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"URL:          {result.source_url}")
 print(f"Pages:        {result.pages_crawled}")
 print(f"Chunks:       {result.total_chunks}")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
-print()
 
-for i, chunk in enumerate(result.chunks[:5], 1):
-    print(f"── Chunk {i} ──")
-    print(chunk.content[:200])
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"url": c.metadata.get("source", ""), "content": c.content, "token_estimate": c.token_estimate} for c in result.chunks],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.total_chunks} chunks from {result.pages_crawled} pages → {out}")
+else:
     print()
+    for i, chunk in enumerate(result.chunks[:5], 1):
+        print(f"── Chunk {i} ──")
+        print(chunk.content[:200])
+        print()
 '''
 
 _EXAMPLES["04_sync_to_vdb.py"] = '''\
@@ -643,6 +742,7 @@ Define a schema and the API returns a typed JSON object.
 Requires an LLM API key (OpenAI, Anthropic, or Gemini).
 """
 
+import json
 import os
 from dotenv import load_dotenv
 from scrapedatshi import ScrapedatshiClient
@@ -673,7 +773,27 @@ EXTRACT_AS_LIST = False
 # Authenticated scraping — cookies stay on your machine, never sent to our servers
 # COOKIES = {"session": "abc123"}
 # HEADERS = {"Authorization": "Bearer eyJ..."}
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Extracted data is saved as JSON next to this script. Auto-increments on collision.
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.json"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extracted.json")
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
 
 client = ScrapedatshiClient()
 
@@ -686,14 +806,22 @@ result = client.pipeline.extract(
     extract_as_list=EXTRACT_AS_LIST,
 )
 
+# ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"URL:          {result.url}")
 print(f"Fields:       {result.field_count}")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
-print()
-print("Extracted data:")
-import json
-print(json.dumps(result.extracted, indent=2))
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(result.extracted, f, indent=2, ensure_ascii=False)
+    print(f"✅ Saved extracted data → {out}")
+else:
+    print()
+    print("Extracted data:")
+    print(json.dumps(result.extracted, indent=2))
 '''
 
 _EXAMPLES["09_extract_crawl.py"] = '''\
@@ -704,6 +832,7 @@ Each page is processed independently — failed pages don\'t abort the batch.
 Only successfully extracted pages are billed.
 """
 
+import json
 import os
 from dotenv import load_dotenv
 from scrapedatshi import ScrapedatshiClient
@@ -734,7 +863,27 @@ LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
 # COOKIES = {"session": "abc123"}
 # HEADERS = {"Authorization": "Bearer eyJ..."}
 # ALLOW_SUBDOMAINS = False                   # set True to crawl subdomains
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Successful extractions are saved as JSON next to this script. Auto-increments on collision.
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.json"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract_crawl.json")
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
 
 client = ScrapedatshiClient()
 
@@ -748,18 +897,27 @@ result = client.pipeline.extract_crawl(
     crawl_mode=CRAWL_MODE,
 )
 
+# ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"Extracted: {result.pages_extracted}/{result.pages_attempted} pages")
 print(f"Failed:    {result.pages_failed} pages (not billed)")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
-print()
 
-for page in result.results:
-    if page.ok:
-        print(f"  ✓ {page.url}")
-        print(f"    {page.extracted}")
-    else:
-        print(f"  ✗ {page.url} — {page.error}")
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    successful = [{"url": p.url, "extracted": p.extracted} for p in result.results if p.ok]
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(successful, f, indent=2, ensure_ascii=False)
+    print(f"✅ Saved {len(successful)} extracted pages → {out}")
+else:
+    print()
+    for page in result.results:
+        if page.ok:
+            print(f"  ✓ {page.url}")
+            print(f"    {page.extracted}")
+        else:
+            print(f"  ✗ {page.url} — {page.error}")
 '''
 
 _EXAMPLES["10_query_vdb.py"] = '''\
@@ -770,6 +928,7 @@ Embeds a natural language query and retrieves the most relevant chunks.
 Run 12_inspect_vdb.py first to confirm the correct embedding model.
 """
 
+import json
 import os
 from dotenv import load_dotenv
 from scrapedatshi import ScrapedatshiClient
@@ -789,7 +948,27 @@ VECTOR_DB_CONFIG = {
     "api_key":    os.getenv("PINECONE_API_KEY"),
     "index_host": os.getenv("PINECONE_INDEX_HOST"),
 }
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Results are saved as JSON next to this script. Auto-increments on collision.
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.json"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "query_results.json")
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
 
 client = ScrapedatshiClient()
 
@@ -803,16 +982,27 @@ result = client.pipeline.query_vectordb(
     top_k=TOP_K,
 )
 
+# ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"Query:        {QUERY}")
 print(f"Results:      {result.chunks_retrieved}")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
-print()
 
-for i, r in enumerate(result.results, 1):
-    print(f"── Result {i}  [score: {r.score:.4f}] ──")
-    print(r.text[:400])
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"score": r.score, "text": r.text, "metadata": r.metadata} for r in result.results],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.chunks_retrieved} results → {out}")
+else:
     print()
+    for i, r in enumerate(result.results, 1):
+        print(f"── Result {i}  [score: {r.score:.4f}] ──")
+        print(r.text[:400])
+        print()
 '''
 
 _EXAMPLES["11_rag_chat.py"] = '''\
@@ -823,6 +1013,7 @@ Combines vector search with LLM generation. You bring your own LLM key —
 scrapedatshi only charges for the vector retrieval ($0.0002 / chunk).
 """
 
+import json
 import os
 from dotenv import load_dotenv
 from scrapedatshi import ScrapedatshiClient
@@ -846,7 +1037,27 @@ VECTOR_DB_CONFIG = {
 LLM_PROVIDER = "openai"                          # ← EDIT: "openai", "anthropic", or "gemini"
 LLM_MODEL    = "gpt-4o-mini"
 LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# The answer and sources are saved as JSON next to this script. Auto-increments on collision.
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.json"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rag_answer.json")
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
 
 client = ScrapedatshiClient()
 
@@ -863,16 +1074,30 @@ result = client.pipeline.rag_chat(
     top_k=TOP_K,
 )
 
+# ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"Question: {QUERY}")
-print()
-print("Answer:")
-print(result.answer)
-print()
-print(f"Based on {result.chunks_retrieved} chunks  |  Credits used: ${result.credits_used:.4f}")
-print()
-print("Sources:")
-for i, source in enumerate(result.sources, 1):
-    print(f"  [{i}] score={source.score:.4f}  {source.text[:120]}...")
+print(f"Chunks retrieved: {result.chunks_retrieved}  |  Credits used: ${result.credits_used:.4f}")
+print(f"Remaining: ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump({
+            "query": QUERY,
+            "answer": result.answer,
+            "chunks_retrieved": result.chunks_retrieved,
+            "sources": [{"score": s.score, "text": s.text} for s in result.sources],
+        }, f, indent=2, ensure_ascii=False)
+    print(f"✅ Saved answer + sources → {out}")
+else:
+    print()
+    print("Answer:")
+    print(result.answer)
+    print()
+    print("Sources:")
+    for i, source in enumerate(result.sources, 1):
+        print(f"  [{i}] score={source.score:.4f}  {source.text[:120]}...")
 '''
 
 _EXAMPLES["13_capture_session.py"] = '''\
