@@ -71,6 +71,8 @@ python examples/00_discover_providers.py
 python examples/01_chunk_url.py
 ```
 
+**Output files:** Content-returning scripts (01, 02, 03, 08–11) automatically save results as JSON next to the script. Credits and job stats always print to the terminal. The filename auto-increments if it already exists (`chunks.json` → `chunks(1).json`) so no run overwrites a previous result. Set `SAVE_TO = None` in any script to print everything to the terminal instead.
+
 ---
 
 ## Authentication

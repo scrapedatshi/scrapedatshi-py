@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrapedatshi"
-version = "0.12.6"
+version = "0.12.7"
 description = "Official Python SDK for the scrapedatshi RAG pipeline API"
 readme = "README.md"
 license = { text = "MIT" }
