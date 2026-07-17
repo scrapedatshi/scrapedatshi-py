@@ -51,6 +51,7 @@ Supported providers: from scrapedatshi.providers import EMBEDDING_PROVIDERS, VEC
 """
 
 from scrapedatshi.client import ScrapedatshiClient
+from scrapedatshi import auth  # noqa: F401  — expose capture_session
 from scrapedatshi.exceptions import (
     AuthError,
     InsufficientCreditsError,

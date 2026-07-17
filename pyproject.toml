@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrapedatshi"
-version = "0.12.3"
+version = "0.12.4"
 description = "Official Python SDK for the scrapedatshi RAG pipeline API"
 readme = "README.md"
 license = { text = "MIT" }
@@ -42,6 +42,7 @@ scrapedatshi = "scrapedatshi.cli:main"
 excel = ["openpyxl>=3.1.0"]
 docx = ["python-docx>=1.0.0"]
 all-parsers = ["openpyxl>=3.1.0", "python-docx>=1.0.0"]
+auth = ["playwright>=1.40.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

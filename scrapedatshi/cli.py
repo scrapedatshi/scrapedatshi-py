@@ -61,6 +61,7 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+*.auth.json
 """
 
 _README_TEMPLATE = """\
@@ -101,6 +102,7 @@ one scrapedatshi pipeline method — just fill in your targets and keys, then ru
 | `10_query_vdb.py` | Semantic search against your vector DB |
 | `11_rag_chat.py` | Retrieve chunks + generate a grounded LLM answer |
 | `12_inspect_vdb.py` | Read vector DB metadata (free — no credits charged) |
+| `13_capture_session.py` | Capture a browser session for authenticated scraping |
 
 ## Docs
 
@@ -301,6 +303,9 @@ Two modes:
   spider            — follows links, works on any site
 
 No vector DB or embedding key required.
+
+Dependencies:
+  pip install python-dotenv
 """
 
 import os
@@ -319,6 +324,9 @@ CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
 # EXCLUDE_PATTERN = "/blog/"             # skip URLs containing this
 # CHUNK_SIZE = 512
 # OVERLAP = 50
+# JS_RENDER = False                      # set True to use a headless browser — can help with
+#                                        # JavaScript-heavy pages and certain access restrictions
+#                                        # ($0.0050/URL surcharge)
 
 # Authenticated crawl — cookies stay on your machine, never sent to our servers
 # COOKIES = {"session": "abc123"}
@@ -334,7 +342,17 @@ CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
 
 client = ScrapedatshiClient()
 
-result = client.pipeline.crawl(URL, max_pages=MAX_PAGES, crawl_mode=CRAWL_MODE)
+result = client.pipeline.crawl(
+    URL,
+    max_pages=MAX_PAGES,
+    crawl_mode=CRAWL_MODE,
+    # js_render=JS_RENDER,
+    # include_pattern=INCLUDE_PATTERN,
+    # exclude_pattern=EXCLUDE_PATTERN,
+    # cookies=COOKIES,
+    # headers=HEADERS,
+    # allow_subdomains=ALLOW_SUBDOMAINS,
+)
 
 print(f"URL:          {result.source_url}")
 print(f"Pages:        {result.pages_crawled}")
@@ -569,6 +587,9 @@ CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
 # EXCLUDE_PATTERN = "/blog/"
 # CHUNK_SIZE = 512
 # OVERLAP = 50
+# JS_RENDER = False                      # set True to use a headless browser — can help with
+#                                        # JavaScript-heavy pages and certain access restrictions
+#                                        # ($0.0050/URL surcharge)
 
 # Authenticated crawl — cookies stay on your machine, never sent to our servers
 # COOKIES = {"session": "abc123"}
@@ -852,6 +873,87 @@ print()
 print("Sources:")
 for i, source in enumerate(result.sources, 1):
     print(f"  [{i}] score={source.score:.4f}  {source.text[:120]}...")
+'''
+
+_EXAMPLES["13_capture_session.py"] = '''\
+"""
+13_capture_session.py — Capture a browser session for authenticated scraping.
+
+Opens a real, headed browser window so you can log in manually through any
+authentication flow (Okta, Duo, standard login forms, MFA, etc.).  Once you
+press Enter in the terminal the SDK captures the full browser storage state
+(cookies + localStorage) and saves it to session.auth.json.
+
+You can then pass the saved state to any pipeline method via storage_state=.
+
+Requirements:
+  pip install scrapedatshi[auth]
+  playwright install chromium
+
+How it works:
+  1. capture_session() runs on YOUR machine using YOUR IP address.
+     This is important — corporate SSO systems trust your IP.
+  2. You log in manually in the real browser window.
+  3. The captured session state is passed to crawl()/scrape() which
+     runs on scrapedatshi\'s cloud infrastructure.
+  4. The target site accepts the session because the auth tokens are
+     valid — session tokens are IP-independent.
+
+⚠  WARNING: The generated session.auth.json contains live security keys
+   capable of impersonating your user profile.  Never commit your .auth.json
+   files to Git repositories.  This project\'s .gitignore already filters
+   *.auth.json automatically.
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+from scrapedatshi.auth import capture_session
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+LOGIN_URL   = "https://internal.company.com/login"  # ← EDIT: your login page
+CRAWL_URL   = "https://internal.company.com"        # ← EDIT: root URL to crawl
+MAX_PAGES   = 20                                     # ← EDIT: max pages to crawl
+SESSION_FILE = "session.auth.json"                   # saved session (gitignored)
+
+# Optional: choose browser engine — "chromium" (default), "firefox", or "webkit"
+# BROWSER = "chromium"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Step 1: Capture session (or load a previously saved one) ─────────────────
+if os.path.exists(SESSION_FILE):
+    print(f"Loading saved session from {SESSION_FILE}")
+    with open(SESSION_FILE) as f:
+        state = json.load(f)
+else:
+    # Opens a real browser window — log in, then press Enter
+    state = capture_session(
+        url=LOGIN_URL,
+        save_to=SESSION_FILE,   # saves to session.auth.json (gitignored)
+    )
+
+# ── Step 2: Crawl with the captured session ───────────────────────────────────
+client = ScrapedatshiClient()
+
+result = client.pipeline.crawl(
+    CRAWL_URL,
+    storage_state=state,
+    max_pages=MAX_PAGES,
+)
+
+print(f"Pages crawled: {result.pages_crawled}")
+print(f"Chunks:        {result.total_chunks}")
+print(f"Credits used:  ${result.credits_used:.4f}")
+print(f"Remaining:     ${result.credits_remaining:.4f}")
+print()
+
+for i, chunk in enumerate(result.chunks[:5], 1):
+    print(f"── Chunk {i} ──")
+    print(chunk.content[:200])
+    print()
 '''
 
 _EXAMPLES["12_inspect_vdb.py"] = '''\

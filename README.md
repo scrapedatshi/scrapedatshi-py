@@ -59,7 +59,8 @@ my-project/
     ├── 09_extract_crawl.py
     ├── 10_query_vdb.py
     ├── 11_rag_chat.py
-    └── 12_inspect_vdb.py
+    ├── 12_inspect_vdb.py
+    └── 13_capture_session.py
 ```
 
 Each script has a clearly marked `# ── CONFIGURE ──` block at the top — just fill in your target URL, file path, or keys and run it. Start with `00_discover_providers.py` to see all supported providers and the env vars each one needs.
@@ -201,10 +202,102 @@ result = client.pipeline.crawl(
     exclude_pattern="/blog/",
 )
 
+# JS rendering — use a headless browser for JavaScript-heavy pages
+# Can help with certain access restrictions ($0.0050/URL surcharge)
+result = client.pipeline.crawl(
+    "https://example.com",
+    js_render=True,
+    max_pages=10,
+)
+
 # Large sites (>200 pages) are auto-batched
 if result.auto_batched:
     print(f"Auto-batched: {result.batches_processed} batches of {result.batch_size} pages")
 ```
+
+---
+
+## Session Capture — Local Playwright (v0.12.4+)
+
+For enterprise portals protected by Okta, Duo, or any SSO/MFA flow that blocks automated login, use `capture_session()` to authenticate manually in a real browser window and capture the full session state.
+
+### How it works
+
+`capture_session()` runs **entirely on your local machine** using your IP address — the same IP your corporate SSO trusts. Once you log in and press Enter, the SDK captures all cookies and localStorage tokens. The crawl then runs on scrapedatshi's cloud infrastructure using the captured session, which is accepted because session tokens are IP-independent.
+
+```
+capture_session()                    crawl() / scrape()
+─────────────────                    ──────────────────
+Runs locally on                      Runs on Scrapedatshi's
+your machine                         cloud infrastructure
+using YOUR IP                        using our server IPs
+        │                                     │
+        ▼                                     ▼
+Opens real Chrome                    Sends HTTP requests
+on your desktop                      with the captured
+        │                            session state
+        ▼                                     │
+You log in manually                          ▼
+(MFA, Okta, etc.)                    Target site accepts
+        │                            the session — tokens
+        ▼                            are IP-independent
+Captures storage_state
+(cookies + localStorage)
+```
+
+### Install
+
+```bash
+pip install scrapedatshi[auth]
+playwright install chromium
+```
+
+### Usage
+
+```python
+from scrapedatshi.auth import capture_session
+from scrapedatshi import ScrapedatshiClient
+
+# Step 1: Opens a real browser — log in, then press Enter
+state = capture_session(
+    "https://internal.company.com/login",
+    save_to="session.auth.json",   # optional — save for reuse (gitignored)
+)
+
+# Step 2: Crawl with the captured session
+client = ScrapedatshiClient()
+result = client.pipeline.crawl(
+    "https://internal.company.com",
+    storage_state=state,
+    max_pages=20,
+)
+```
+
+### Save and reuse sessions
+
+```python
+import json
+
+# Save
+state = capture_session("https://internal.company.com/login", save_to="session.auth.json")
+
+# Load later — no need to log in again until the session expires
+with open("session.auth.json") as f:
+    state = json.load(f)
+
+result = client.pipeline.crawl("https://internal.company.com", storage_state=state)
+```
+
+### Browser choice
+
+```python
+# Defaults to Chromium — also supports Firefox and WebKit
+state = capture_session("https://internal.company.com/login", browser="firefox")
+```
+
+> **⚠ Security Warning**
+>
+> The generated `session.auth.json` contains live security keys capable of impersonating your user profile. Never commit your `.auth.json` files to Git repositories. Generated test sandboxes created using `scrapedatshi init` are automatically pre-configured with `.gitignore` filters tracking `*.auth.json`.
 
 ---
 
