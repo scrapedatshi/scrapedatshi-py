@@ -293,6 +293,74 @@ async def _chunk_page_locally_async(
         return [], 0.0, 0.0
 
 
+# ── Playwright local fetch helper ────────────────────────────────────────────
+
+
+def _fetch_url_with_playwright_sync(url: str) -> str:
+    """
+    Fetch a URL using a local headless Playwright browser (synchronous wrapper).
+
+    Used by _crawl_locally when js_render=True. Runs Playwright in a new event
+    loop so it can be called from synchronous code.
+
+    Requires: pip install playwright && playwright install chromium
+    """
+    import asyncio as _asyncio
+
+    try:
+        from playwright.async_api import async_playwright  # type: ignore[import]
+    except ImportError:
+        raise ImportError(
+            "playwright is required for js_render=True on crawl. "
+            "Install it with: pip install playwright && playwright install chromium"
+        )
+
+    async def _fetch() -> str:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+            )
+            try:
+                context = await browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/125.0.0.0 Safari/537.36"
+                    )
+                )
+                page = await context.new_page()
+                await page.goto(url, wait_until="load", timeout=30000)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass
+                await page.wait_for_timeout(500)
+                return await page.content()
+            finally:
+                await browser.close()
+
+    try:
+        loop = _asyncio.get_event_loop()
+        if loop.is_running():
+            # Already inside an event loop (e.g. Jupyter) — use a thread
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_asyncio.run, _fetch())
+                return future.result()
+        else:
+            return loop.run_until_complete(_fetch())
+    except RuntimeError:
+        return _asyncio.run(_fetch())
+
+
 # ── Local crawl loops ─────────────────────────────────────────────────────────
 
 
@@ -305,6 +373,7 @@ def _crawl_locally(
     selector: str | None,
     include_pattern: str | None,
     exclude_pattern: str | None,
+    js_render: bool = False,
     contextual_retrieval: bool,
     llm_provider: str | None,
     llm_api_key: str | None,
@@ -318,6 +387,10 @@ def _crawl_locally(
 
     Discovers URLs (sitemap or spider BFS), fetches each page on the caller's
     machine, and submits HTML to /v1/rag-chunk for chunking.
+
+    When js_render=True, each page is fetched using a local headless Playwright
+    browser instead of httpx. Playwright must be installed:
+        pip install playwright && playwright install chromium
     """
     all_chunks: list[dict] = []
     total_credits_used: float = 0.0
@@ -343,11 +416,14 @@ def _crawl_locally(
         for page_url in urls_to_crawl:
             send_creds = _is_matching_domain_scope(page_url, url, allow_subdomains)
             try:
-                html = client._fetch_url_locally(
-                    page_url,
-                    cookies=cookies if send_creds else None,
-                    extra_headers=headers if send_creds else None,
-                )
+                if js_render:
+                    html = _fetch_url_with_playwright_sync(page_url)
+                else:
+                    html = client._fetch_url_locally(
+                        page_url,
+                        cookies=cookies if send_creds else None,
+                        extra_headers=headers if send_creds else None,
+                    )
             except Exception:
                 time.sleep(_CRAWL_POLITENESS_DELAY)
                 continue
@@ -392,11 +468,14 @@ def _crawl_locally(
             visited.add(normalized)
             send_creds = _is_matching_domain_scope(normalized, url, allow_subdomains)
             try:
-                html = client._fetch_url_locally(
-                    normalized,
-                    cookies=cookies if send_creds else None,
-                    extra_headers=headers if send_creds else None,
-                )
+                if js_render:
+                    html = _fetch_url_with_playwright_sync(normalized)
+                else:
+                    html = client._fetch_url_locally(
+                        normalized,
+                        cookies=cookies if send_creds else None,
+                        extra_headers=headers if send_creds else None,
+                    )
             except Exception:
                 time.sleep(_CRAWL_POLITENESS_DELAY)
                 continue
@@ -455,6 +534,7 @@ async def _crawl_locally_async(
     selector: str | None,
     include_pattern: str | None,
     exclude_pattern: str | None,
+    js_render: bool = False,
     contextual_retrieval: bool,
     llm_provider: str | None,
     llm_api_key: str | None,
@@ -490,11 +570,16 @@ async def _crawl_locally_async(
         for page_url in urls_to_crawl:
             send_creds = _is_matching_domain_scope(page_url, url, allow_subdomains)
             try:
-                html = await client._fetch_url_locally_async(
-                    page_url,
-                    cookies=cookies if send_creds else None,
-                    extra_headers=headers if send_creds else None,
-                )
+                if js_render:
+                    html = await _asyncio.to_thread(
+                        _fetch_url_with_playwright_sync, page_url
+                    )
+                else:
+                    html = await client._fetch_url_locally_async(
+                        page_url,
+                        cookies=cookies if send_creds else None,
+                        extra_headers=headers if send_creds else None,
+                    )
             except Exception:
                 await _asyncio.sleep(_CRAWL_POLITENESS_DELAY)
                 continue
@@ -539,11 +624,16 @@ async def _crawl_locally_async(
             visited.add(normalized)
             send_creds = _is_matching_domain_scope(normalized, url, allow_subdomains)
             try:
-                html = await client._fetch_url_locally_async(
-                    normalized,
-                    cookies=cookies if send_creds else None,
-                    extra_headers=headers if send_creds else None,
-                )
+                if js_render:
+                    html = await _asyncio.to_thread(
+                        _fetch_url_with_playwright_sync, normalized
+                    )
+                else:
+                    html = await client._fetch_url_locally_async(
+                        normalized,
+                        cookies=cookies if send_creds else None,
+                        extra_headers=headers if send_creds else None,
+                    )
             except Exception:
                 await _asyncio.sleep(_CRAWL_POLITENESS_DELAY)
                 continue

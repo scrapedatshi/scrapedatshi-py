@@ -324,14 +324,7 @@ class ChunkMixin:
         Crawl a website, chunk all pages, and return structured JSON.
         No embedding or vector DB required.
         """
-        use_local = self._client.fetch_mode == "local" and not js_render
-        if self._client.fetch_mode == "local" and js_render:
-            warnings.warn(
-                "crawl(): js_render=True requires server-side Playwright. "
-                "Falling back to server-fetch mode for this crawl. "
-                "Cookies and headers will NOT be forwarded to the server.",
-                stacklevel=2,
-            )
+        use_local = self._client.fetch_mode == "local"
 
         if use_local:
             return _crawl_locally(
@@ -342,6 +335,7 @@ class ChunkMixin:
                 selector=selector,
                 include_pattern=include_pattern,
                 exclude_pattern=exclude_pattern,
+                js_render=js_render,
                 contextual_retrieval=contextual_retrieval,
                 llm_provider=llm_provider,
                 llm_api_key=llm_api_key,
@@ -407,14 +401,7 @@ class ChunkMixin:
         allow_subdomains: bool = False,
     ) -> CrawlChunkResult:
         """Async version of :meth:`crawl`."""
-        use_local = self._client.fetch_mode == "local" and not js_render
-        if self._client.fetch_mode == "local" and js_render:
-            warnings.warn(
-                "crawl_async(): js_render=True requires server-side Playwright. "
-                "Falling back to server-fetch mode for this crawl. "
-                "Cookies and headers will NOT be forwarded to the server.",
-                stacklevel=2,
-            )
+        use_local = self._client.fetch_mode == "local"
 
         if use_local:
             return await _crawl_locally_async(
@@ -425,6 +412,7 @@ class ChunkMixin:
                 selector=selector,
                 include_pattern=include_pattern,
                 exclude_pattern=exclude_pattern,
+                js_render=js_render,
                 contextual_retrieval=contextual_retrieval,
                 llm_provider=llm_provider,
                 llm_api_key=llm_api_key,
