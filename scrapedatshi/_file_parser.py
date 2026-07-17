@@ -415,26 +415,50 @@ def _extract_xml_text(path: Path) -> str:
 # ── AST-aware Python code extraction ─────────────────────────────────────────
 
 
+def _extract_import_names_sdk(import_lines: list[str]) -> list[str]:
+    """Extract the top-level names introduced by import statement lines."""
+    names: list[str] = []
+    for line in import_lines:
+        stripped = line.strip()
+        if stripped.startswith("from "):
+            after_import = stripped.split(" import ", 1)
+            if len(after_import) == 2:
+                for part in after_import[1].split(","):
+                    part = part.strip()
+                    if " as " in part:
+                        names.append(part.split(" as ")[-1].strip())
+                    else:
+                        names.append(part)
+        elif stripped.startswith("import "):
+            after_import = stripped[len("import ") :].strip()
+            for part in after_import.split(","):
+                part = part.strip()
+                if " as " in part:
+                    names.append(part.split(" as ")[-1].strip())
+                else:
+                    names.append(part)
+    return [n for n in names if n]
+
+
 def _extract_python_ast_units(source: str) -> list[dict]:
     """
     Parse a Python source string with the stdlib ``ast`` module and extract
-    top-level classes and functions as logical units.
+    top-level classes, functions, and module-level (global scope) code as
+    logical units.
 
     Each unit is a dict with:
-        text        — the source code for that unit (extracted via line slicing)
+        text        — the source code for that unit
         metadata    — {type, name, line_start, line_end, docstring}
 
-    If the source cannot be parsed (syntax error), returns a single unit
-    containing the full source text so the caller can fall back gracefully.
-
-    Nested functions/methods inside a class are included as part of the class
-    unit — they are NOT split out individually.  Only top-level definitions
-    are split.
+    Improvements:
+    - Only prepends imports that are actually referenced in each unit (no bloat)
+    - Collects all module-level code outside named defs as "global_scope" units
+      so no lines are silently dropped
+    - Falls back to a single module-level unit if parsing fails
     """
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        # Fallback: treat the whole file as one unit
         return [
             {
                 "text": source,
@@ -449,17 +473,17 @@ def _extract_python_ast_units(source: str) -> list[dict]:
         ]
 
     lines = source.splitlines()
-    units: list[dict] = []
 
-    # Collect top-level import lines so we can prepend them to each unit
-    import_lines: list[str] = []
+    # Collect import entries as (stmt_text, names_introduced) for smart filtering
+    import_entries: list[tuple[str, list[str]]] = []
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             start = node.lineno - 1
             end = node.end_lineno  # type: ignore[attr-defined]
-            import_lines.extend(lines[start:end])
-
-    import_header = "\n".join(import_lines) + "\n\n" if import_lines else ""
+            stmt_lines = lines[start:end]
+            stmt_text = "\n".join(stmt_lines)
+            names = _extract_import_names_sdk(stmt_lines)
+            import_entries.append((stmt_text, names))
 
     top_level_defs = [
         node
@@ -467,12 +491,24 @@ def _extract_python_ast_units(source: str) -> list[dict]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     ]
 
-    for node in top_level_defs:
-        start = node.lineno - 1
-        end = node.end_lineno  # type: ignore[attr-defined]
-        unit_source = "\n".join(lines[start:end])
+    def_ranges: list[tuple[int, int]] = [
+        (node.lineno, node.end_lineno)  # type: ignore[attr-defined]
+        for node in top_level_defs
+    ]
 
-        # Extract docstring
+    import_line_set: set[int] = set()
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for ln in range(node.lineno, node.end_lineno + 1):  # type: ignore[attr-defined]
+                import_line_set.add(ln)
+
+    units: list[dict] = []
+
+    for node in top_level_defs:
+        start_0 = node.lineno - 1
+        end_0 = node.end_lineno  # type: ignore[attr-defined]
+        unit_source = "\n".join(lines[start_0:end_0])
+
         docstring: str | None = None
         try:
             docstring = ast.get_docstring(node)
@@ -486,8 +522,16 @@ def _extract_python_ast_units(source: str) -> list[dict]:
         else:
             unit_type = "function"
 
-        # Build the text block: imports header + unit source
-        text = import_header + unit_source if import_header else unit_source
+        relevant_imports: list[str] = []
+        for stmt_text, names in import_entries:
+            if any(name in unit_source for name in names):
+                relevant_imports.append(stmt_text)
+
+        text = (
+            "\n".join(relevant_imports) + "\n\n" + unit_source
+            if relevant_imports
+            else unit_source
+        )
 
         units.append(
             {
@@ -496,14 +540,55 @@ def _extract_python_ast_units(source: str) -> list[dict]:
                     "type": unit_type,
                     "name": node.name,
                     "line_start": node.lineno,
-                    "line_end": end,
+                    "line_end": end_0,
                     "docstring": docstring,
                 },
             }
         )
 
+    # Collect global scope remnants (lines not in any def or import)
+    covered_lines: set[int] = set(import_line_set)
+    for lo, hi in def_ranges:
+        for ln in range(lo, hi + 1):
+            covered_lines.add(ln)
+
+    global_lines: list[tuple[int, str]] = []
+    for i, line_text in enumerate(lines):
+        lineno = i + 1
+        if lineno not in covered_lines:
+            global_lines.append((lineno, line_text))
+
+    if global_lines:
+        blocks: list[list[tuple[int, str]]] = []
+        current_block: list[tuple[int, str]] = [global_lines[0]]
+        for prev, curr in zip(global_lines, global_lines[1:]):
+            if curr[0] == prev[0] + 1:
+                current_block.append(curr)
+            else:
+                blocks.append(current_block)
+                current_block = [curr]
+        blocks.append(current_block)
+
+        for block in blocks:
+            block_text = "\n".join(line for _, line in block).strip()
+            if not block_text:
+                continue
+            units.append(
+                {
+                    "text": block_text,
+                    "metadata": {
+                        "type": "global_scope",
+                        "name": "<module>",
+                        "line_start": block[0][0],
+                        "line_end": block[-1][0],
+                        "docstring": None,
+                    },
+                }
+            )
+
+    units.sort(key=lambda u: u["metadata"]["line_start"])
+
     if not units:
-        # File has no top-level classes/functions (e.g. a script) — return whole file
         return [
             {
                 "text": source,
