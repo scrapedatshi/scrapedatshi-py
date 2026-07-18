@@ -181,15 +181,9 @@ if result.title:
 print(f"Length:       {len(result.markdown):,} chars")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
-
-# ── Detected content sections ─────────────────────────────────────────────────
-# selectors_found lists CSS selectors for the main content areas on the page.
-# Use one to re-scrape just that section — great for targeting article bodies,
-# docs content, or pricing tables while skipping nav/footer noise.
+# Detected content sections — uncomment SELECTOR above and re-run to target one:
 if result.selectors_found:
-    print(f"\nDetected sections: {result.selectors_found}")
-    print("  → Re-scrape a specific section:")
-    print(f"    result = client.pipeline.scrape_url(URL, selector=\"{result.selectors_found[0]}\")")
+    print(f"Sections:     {result.selectors_found}")
 
 # ── File output ───────────────────────────────────────────────────────────────
 if SAVE_TO:

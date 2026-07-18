@@ -130,19 +130,22 @@ client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
 The simplest way to get clean text from any URL or local file — no chunking, no embedding, no vector DB required. Returns the full page or file content as clean Markdown.
 
 ```python
-# Scrape a URL → Markdown
-result = client.pipeline.scrape_url("https://docs.example.com")
-print(result.markdown)
-print(f"Cost: ${result.credits_used:.4f}")
+# Optional: uncomment to target a specific section
+# SELECTOR = "article"   # detected sections are printed below — copy one here
 
-# Optional parameters (all commented out by default)
+# Scrape a URL → Markdown
 result = client.pipeline.scrape_url(
-    "https://docs.example.com/guide",
-    # selector="article",      # CSS selector to target main content
-    # js_render=True,          # headless Chromium for SPAs ($0.0050/URL surcharge)
+    "https://docs.example.com",
+    # selector=SELECTOR,      # uncomment after choosing a section below
+    # js_render=True,         # headless Chromium for SPAs ($0.0050/URL surcharge)
     # cookies={"session": "abc123"},   # authenticated scraping
     # headers={"Authorization": "Bearer eyJ..."},
 )
+print(result.markdown)
+print(f"Cost: ${result.credits_used:.4f}")
+# Detected content sections — uncomment SELECTOR above and re-run to target one:
+if result.selectors_found:
+    print(f"Sections: {result.selectors_found}")
 
 # Scrape a local file → Markdown
 result = client.pipeline.scrape_file("./docs/manual.pdf")
@@ -160,17 +163,6 @@ result.selectors_found   # list[str] — CSS selectors for detected content sect
 result.content_truncated # bool — True if content exceeded ~75,000 words
 result.credits_used      # float
 result.credits_remaining # float
-```
-
-**Selector discovery** — every `scrape_url()` call returns `selectors_found`, a list of CSS selectors for the main content sections detected on the page (same logic as the public scraper tool). Use one to re-scrape just that section:
-
-```python
-result = client.pipeline.scrape_url("https://docs.example.com")
-print(result.selectors_found)
-# → ['article', '#main-content', '.post-body']
-
-# Re-scrape targeting just the main article:
-result = client.pipeline.scrape_url("https://docs.example.com", selector="article")
 ```
 
 `selectors_found` is always empty for `scrape_file()` — CSS selectors are an HTML concept.
