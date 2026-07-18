@@ -113,6 +113,15 @@ class ScrapeResult(BaseModel):
         None,
         description="Page title extracted from HTML metadata (None for local files).",
     )
+    selectors_found: list[str] = Field(
+        default_factory=list,
+        description=(
+            "CSS selectors for the main content sections detected on the page. "
+            "Use one to re-scrape just that section via the selector= parameter. "
+            "Always empty for scrape_file() — CSS selectors are an HTML concept. "
+            "Example: ['article', '#main-content', '.post-body']"
+        ),
+    )
     content_truncated: bool = Field(
         False,
         description=(
@@ -158,6 +167,15 @@ class ChunkResult(BaseModel):
     total_chunks: int = Field(..., description="Total number of chunks returned.")
     source: str = Field(
         ..., description="The source URL or filename that was processed."
+    )
+    selectors_found: list[str] = Field(
+        default_factory=list,
+        description=(
+            "CSS selectors for the main content sections detected on the page. "
+            "Use one to re-chunk just that section via the selector= parameter. "
+            "Always empty for chunk_file() — CSS selectors are an HTML concept. "
+            "Example: ['article', '#main-content', '.post-body']"
+        ),
     )
     contextual_retrieval_used: bool = Field(
         False,

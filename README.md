@@ -156,10 +156,24 @@ print(f"Cost: ${result.credits_used:.4f}")
 result.markdown          # str — full page/file content as clean Markdown
 result.source            # str — URL or filename
 result.title             # str | None — page title (None for local files)
+result.selectors_found   # list[str] — CSS selectors for detected content sections
 result.content_truncated # bool — True if content exceeded ~75,000 words
 result.credits_used      # float
 result.credits_remaining # float
 ```
+
+**Selector discovery** — every `scrape_url()` call returns `selectors_found`, a list of CSS selectors for the main content sections detected on the page (same logic as the public scraper tool). Use one to re-scrape just that section:
+
+```python
+result = client.pipeline.scrape_url("https://docs.example.com")
+print(result.selectors_found)
+# → ['article', '#main-content', '.post-body']
+
+# Re-scrape targeting just the main article:
+result = client.pipeline.scrape_url("https://docs.example.com", selector="article")
+```
+
+`selectors_found` is always empty for `scrape_file()` — CSS selectors are an HTML concept.
 
 **Scrape = Markdown. Chunk = Chunks.** Use `scrape_url()` / `scrape_file()` when you want the raw text. Use `chunk_url()` / `chunk_file()` when you want RAG-optimized segments ready for embedding.
 
@@ -854,6 +868,7 @@ Every response includes `credits_used` and `credits_remaining` for programmatic 
 result.chunks                  # list[Chunk]
 result.total_chunks            # int
 result.source                  # str
+result.selectors_found         # list[str] — CSS selectors for detected content sections
 result.contextual_retrieval_used  # bool
 result.content_truncated       # bool — True if content exceeded ~75,000 words
 result.credits_used            # float
