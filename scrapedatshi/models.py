@@ -33,6 +33,12 @@ class Chunk(BaseModel):
     - ``original_text``: the raw chunk text before enrichment
     - ``context``: the LLM-generated per-chunk context string
     - ``content`` (``text``): the combined string ``"Context: {context}\\n\\n{original_text}"``
+
+    When ``hierarchical=True`` is used on the parent call, two additional
+    fields are populated on each chunk:
+
+    - ``parent_text``: the larger parent chunk text (fed to the LLM on retrieval)
+    - ``parent_index``: which parent chunk this child belongs to
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -40,7 +46,7 @@ class Chunk(BaseModel):
     content: str = Field(
         ...,
         alias="text",
-        description="The chunk text content (server field: ``text``). When contextual_retrieval=True, this is the combined 'Context: ...\\n\\n{original_text}' string.",
+        description="The chunk text content (server field: ``text``). When contextual_retrieval=True, this is the combined 'Context: ...\\n\\n{original_text}' string. When hierarchical=True, this is the small child chunk text that gets embedded.",
     )
     token_estimate: int = Field(
         ..., description="Estimated token count for this chunk."
@@ -58,6 +64,28 @@ class Chunk(BaseModel):
             "The LLM-generated per-chunk context string prepended before embedding. "
             "Includes document identity, section identity, and specific entities. "
             "Only set when contextual_retrieval=True and CR succeeded for this chunk."
+        ),
+    )
+    parent_text: str | None = Field(
+        None,
+        description=(
+            "The larger parent chunk text (fed to the LLM on retrieval for full context). "
+            "Only set when hierarchical=True was used. "
+            "Use this as the LLM context instead of content when is_hierarchical=True."
+        ),
+    )
+    parent_index: int | None = Field(
+        None,
+        description=(
+            "Index of the parent chunk this child belongs to. "
+            "Only set when hierarchical=True was used."
+        ),
+    )
+    is_hierarchical: bool = Field(
+        False,
+        description=(
+            "True when this chunk was produced by hierarchical (parent-child) chunking. "
+            "When True, use parent_text as the LLM context and content for vector matching."
         ),
     )
     metadata: dict[str, Any] = Field(
@@ -159,6 +187,18 @@ class ChunkResult(BaseModel):
         for chunk in result.chunks:
             print(chunk.content)
         print(f"Cost: ${result.credits_used:.4f} | Remaining: ${result.credits_remaining:.4f}")
+
+        # Hierarchical chunking — small child chunks for embedding, parent for LLM context
+        result = client.pipeline.chunk_url(
+            "https://docs.example.com",
+            hierarchical=True,
+        )
+        for chunk in result.chunks:
+            # chunk.content = small child chunk (what gets embedded)
+            # chunk.parent_text = large parent chunk (what LLM reads)
+            print(f"Child: {chunk.content[:80]}")
+            if chunk.parent_text:
+                print(f"Parent: {chunk.parent_text[:120]}")
     """
 
     chunks: list[Chunk] = Field(
@@ -175,6 +215,14 @@ class ChunkResult(BaseModel):
             "Use one to re-chunk just that section via the selector= parameter. "
             "Always empty for chunk_file() — CSS selectors are an HTML concept. "
             "Example: ['article', '#main-content', '.post-body']"
+        ),
+    )
+    hierarchical: bool = Field(
+        False,
+        description=(
+            "True when hierarchical (parent-child) chunking was used. "
+            "Each chunk has a small child text (content) for embedding and a "
+            "larger parent_text for LLM context on retrieval."
         ),
     )
     contextual_retrieval_used: bool = Field(
@@ -294,6 +342,13 @@ class SyncResult(BaseModel):
     vector_db_provider: str = Field(
         ..., description="Vector DB provider used (e.g. 'pinecone')."
     )
+    hierarchical: bool = Field(
+        False,
+        description=(
+            "True when hierarchical (parent-child) chunking was used. "
+            "Each vector in the DB has parent_text metadata for LLM context on retrieval."
+        ),
+    )
     contextual_retrieval_used: bool = Field(False)
     contextual_retrieval_error: str | None = Field(
         None,
@@ -343,6 +398,13 @@ class IngestResult(BaseModel):
     embedding_provider: str
     vector_db_provider: str
     filename: str = Field("", description="Original filename that was ingested.")
+    hierarchical: bool = Field(
+        False,
+        description=(
+            "True when hierarchical (parent-child) chunking was used. "
+            "Each vector in the DB has parent_text metadata for LLM context on retrieval."
+        ),
+    )
     contextual_retrieval_used: bool = Field(False)
     contextual_retrieval_error: str | None = Field(
         None,
@@ -824,7 +886,26 @@ class QueryResult(BaseModel):
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        description="Metadata attached to this chunk (source URL, chunk_index, etc.).",
+        description=(
+            "Metadata attached to this chunk (source URL, chunk_index, etc.). "
+            "For hierarchical chunks, includes parent_text, parent_index, and is_hierarchical. "
+            "Use metadata['parent_text'] as the LLM context when metadata.get('is_hierarchical')."
+        ),
+    )
+    rrf_score: float | None = Field(
+        None,
+        description=(
+            "Reciprocal Rank Fusion score when hybrid_search=True was used. "
+            "Higher scores indicate the chunk appeared in both vector and keyword results."
+        ),
+    )
+    hybrid_sources: list[str] | None = Field(
+        None,
+        description=(
+            "Which search methods found this chunk when hybrid_search=True. "
+            "Possible values: ['vector'], ['keyword'], or ['vector', 'keyword']. "
+            "Chunks in both lists get a combined RRF score boost."
+        ),
     )
 
     def __repr__(self) -> str:
@@ -909,9 +990,19 @@ class QueryVectorDBResult(BaseModel):
     chunks_retrieved: int = Field(
         ..., description="Number of results actually returned."
     )
+    hybrid_search: bool = Field(
+        False,
+        description=(
+            "True when hybrid search (vector + BM25 keyword + RRF) was used. "
+            "Results include rrf_score and hybrid_sources fields."
+        ),
+    )
     results: list[QueryResult] = Field(
         default_factory=list,
-        description="Matching chunks ordered by similarity score descending.",
+        description=(
+            "Matching chunks ordered by similarity score (or RRF score when hybrid_search=True) descending. "
+            "For hierarchical chunks, use result.metadata.get('parent_text') as the LLM context."
+        ),
     )
     credits_used: float = Field(
         0.0, description="Credits deducted ($0.0002 × chunks_retrieved)."

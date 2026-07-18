@@ -202,6 +202,8 @@ class ChunkMixin:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        hierarchical: bool = False,
+        child_chunk_size: int = 128,
         cookies: dict | None = None,
         headers: dict | None = None,
         allow_subdomains: bool = False,
@@ -209,6 +211,15 @@ class ChunkMixin:
         """
         Scrape a URL, chunk the content, and return structured JSON chunks.
         No embedding or vector DB required.
+
+        Args:
+            hierarchical: If True, uses hierarchical (parent-child) chunking.
+                Small child chunks (~child_chunk_size tokens) are embedded for
+                precise vector matching; the larger parent chunk is stored as
+                metadata and returned to the LLM for full context on retrieval.
+                Each chunk will have ``parent_text`` and ``is_hierarchical`` fields.
+            child_chunk_size: Target token count for child (search) chunks when
+                hierarchical=True. Parent chunks use chunk_size. Default: 128.
         """
         payload: dict = {"url": url}
         if selector:
@@ -219,6 +230,10 @@ class ChunkMixin:
             payload["overlap"] = overlap
         if js_render:
             payload["js_render"] = True
+        if hierarchical:
+            payload["hierarchical"] = True
+            if child_chunk_size != 128:
+                payload["child_chunk_size"] = child_chunk_size
         if contextual_retrieval:
             payload["contextual_retrieval"] = True
             if llm_provider:
@@ -239,6 +254,7 @@ class ChunkMixin:
             chunks=data.get("chunks", []),
             total_chunks=data.get("chunk_count", len(data.get("chunks", []))),
             source=url,
+            hierarchical=bool(data.get("hierarchical", False)),
             contextual_retrieval_used=bool(data.get("contextual_retrieval", False)),
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
             content_truncated=bool(data.get("content_truncated", False)),
@@ -264,6 +280,8 @@ class ChunkMixin:
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
         llm_model: str | None = None,
+        hierarchical: bool = False,
+        child_chunk_size: int = 128,
         cookies: dict | None = None,
         headers: dict | None = None,
         allow_subdomains: bool = False,
@@ -278,6 +296,10 @@ class ChunkMixin:
             payload["overlap"] = overlap
         if js_render:
             payload["js_render"] = True
+        if hierarchical:
+            payload["hierarchical"] = True
+            if child_chunk_size != 128:
+                payload["child_chunk_size"] = child_chunk_size
         if contextual_retrieval:
             payload["contextual_retrieval"] = True
             if llm_provider:
@@ -298,6 +320,7 @@ class ChunkMixin:
             chunks=data.get("chunks", []),
             total_chunks=data.get("chunk_count", len(data.get("chunks", []))),
             source=url,
+            hierarchical=bool(data.get("hierarchical", False)),
             contextual_retrieval_used=bool(data.get("contextual_retrieval", False)),
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
             content_truncated=bool(data.get("content_truncated", False)),

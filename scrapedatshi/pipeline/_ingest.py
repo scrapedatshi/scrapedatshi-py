@@ -43,6 +43,8 @@ class IngestMixin:
         embedding_endpoint: str | None = None,
         chunk_size: int = 512,
         overlap: int = 50,
+        hierarchical: bool = False,
+        child_chunk_size: int = 128,
         contextual_retrieval: bool = False,
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
@@ -53,6 +55,13 @@ class IngestMixin:
 
         Supports: .pdf, .md, .txt, .yaml, .yml, .json, .csv, .xlsx, .docx, .ipynb,
         and all common code file types.
+
+        Args:
+            hierarchical: If True, uses hierarchical (parent-child) chunking.
+                Small child chunks are embedded for precise vector matching;
+                the larger parent chunk is stored as metadata for LLM context.
+            child_chunk_size: Target token count for child chunks when
+                hierarchical=True. Default: 128.
         """
         path = Path(file_path)
         mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
@@ -75,6 +84,10 @@ class IngestMixin:
             form_data["chunk_size"] = str(chunk_size)
         if overlap != 50:
             form_data["overlap"] = str(overlap)
+        if hierarchical:
+            form_data["hierarchical"] = "true"
+            if child_chunk_size != 128:
+                form_data["child_chunk_size"] = str(child_chunk_size)
         if contextual_retrieval:
             form_data["contextual_retrieval"] = "true"
             if llm_provider:
@@ -96,6 +109,7 @@ class IngestMixin:
             embedding_provider=embedding_provider,
             vector_db_provider=vector_db,
             filename=path.name,
+            hierarchical=bool(hierarchical),
             contextual_retrieval_used=bool(contextual_retrieval),
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
             credits_used=float(data.get("credits_used", 0.0)),
@@ -114,6 +128,8 @@ class IngestMixin:
         embedding_endpoint: str | None = None,
         chunk_size: int = 512,
         overlap: int = 50,
+        hierarchical: bool = False,
+        child_chunk_size: int = 128,
         contextual_retrieval: bool = False,
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
@@ -141,6 +157,10 @@ class IngestMixin:
             form_data["chunk_size"] = str(chunk_size)
         if overlap != 50:
             form_data["overlap"] = str(overlap)
+        if hierarchical:
+            form_data["hierarchical"] = "true"
+            if child_chunk_size != 128:
+                form_data["child_chunk_size"] = str(child_chunk_size)
         if contextual_retrieval:
             form_data["contextual_retrieval"] = "true"
             if llm_provider:
@@ -164,6 +184,7 @@ class IngestMixin:
             embedding_provider=embedding_provider,
             vector_db_provider=vector_db,
             filename=path.name,
+            hierarchical=bool(hierarchical),
             contextual_retrieval_used=bool(contextual_retrieval),
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
             credits_used=float(data.get("credits_used", 0.0)),

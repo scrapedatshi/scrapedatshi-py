@@ -37,6 +37,8 @@ class SyncMixin:
         chunk_size: int = 512,
         overlap: int = 50,
         js_render: bool = False,
+        hierarchical: bool = False,
+        child_chunk_size: int = 128,
         contextual_retrieval: bool = False,
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
@@ -46,6 +48,13 @@ class SyncMixin:
     ) -> SyncResult:
         """
         Full pipeline: scrape a URL, embed chunks, and inject into a vector DB.
+
+        Args:
+            hierarchical: If True, uses hierarchical (parent-child) chunking.
+                Small child chunks are embedded for precise vector matching;
+                the larger parent chunk is stored as metadata for LLM context.
+            child_chunk_size: Target token count for child chunks when
+                hierarchical=True. Default: 128.
         """
         embedding: dict = {"provider": embedding_provider, "api_key": embedding_api_key}
         if embedding_model:
@@ -64,6 +73,10 @@ class SyncMixin:
             payload["overlap"] = overlap
         if js_render:
             payload["js_render"] = True
+        if hierarchical:
+            payload["hierarchical"] = True
+            if child_chunk_size != 128:
+                payload["child_chunk_size"] = child_chunk_size
         if contextual_retrieval:
             payload["contextual_retrieval"] = True
             if llm_provider:
@@ -89,6 +102,7 @@ class SyncMixin:
             ),
             embedding_provider=embedding_provider,
             vector_db_provider=vector_db,
+            hierarchical=bool(data.get("hierarchical", False)),
             contextual_retrieval_used=bool(data.get("contextual_retrieval", False)),
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
             credits_used=float(data.get("credits_used", 0.0)),
@@ -109,6 +123,8 @@ class SyncMixin:
         chunk_size: int = 512,
         overlap: int = 50,
         js_render: bool = False,
+        hierarchical: bool = False,
+        child_chunk_size: int = 128,
         contextual_retrieval: bool = False,
         llm_provider: str | None = None,
         llm_api_key: str | None = None,
@@ -134,6 +150,10 @@ class SyncMixin:
             payload["overlap"] = overlap
         if js_render:
             payload["js_render"] = True
+        if hierarchical:
+            payload["hierarchical"] = True
+            if child_chunk_size != 128:
+                payload["child_chunk_size"] = child_chunk_size
         if contextual_retrieval:
             payload["contextual_retrieval"] = True
             if llm_provider:
@@ -159,6 +179,7 @@ class SyncMixin:
             ),
             embedding_provider=embedding_provider,
             vector_db_provider=vector_db,
+            hierarchical=bool(data.get("hierarchical", False)),
             contextual_retrieval_used=bool(data.get("contextual_retrieval", False)),
             contextual_retrieval_error=data.get("contextual_retrieval_error"),
             credits_used=float(data.get("credits_used", 0.0)),

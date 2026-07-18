@@ -86,10 +86,19 @@ class QueryMixin:
         vector_db: str,
         vector_db_config: dict,
         top_k: int = 5,
+        hybrid_search: bool = False,
     ) -> QueryVectorDBResult:
         """
         Query your vector database using natural language.
         Billing: $0.0002 per chunk returned.
+
+        Args:
+            hybrid_search: If True, combines dense vector search with BM25 keyword
+                search using Reciprocal Rank Fusion (RRF). Improves cross-referencing
+                accuracy for exact terms, IDs, names, and error codes that semantic
+                search alone misses. Results include ``rrf_score`` and ``hybrid_sources``
+                fields. Natively supported by LanceDB and Qdrant; client-side fallback
+                for all other providers.
         """
         payload: dict = {
             "query": query,
@@ -101,6 +110,8 @@ class QueryMixin:
             },
             "vector_db": {"provider": vector_db, **vector_db_config},
         }
+        if hybrid_search:
+            payload["hybrid_search"] = True
         data = self._client._post("/v1/query", json=payload)
         return QueryVectorDBResult(
             query=data.get("query", query),
@@ -109,11 +120,14 @@ class QueryMixin:
             vector_db_provider=data.get("vector_db_provider", vector_db),
             top_k_requested=data.get("top_k_requested", top_k),
             chunks_retrieved=data.get("chunks_retrieved", 0),
+            hybrid_search=bool(data.get("hybrid_search", False)),
             results=[
                 QueryResult(
                     text=r.get("text", ""),
                     score=float(r.get("score", 0.0)),
                     metadata=r.get("metadata", {}),
+                    rrf_score=r.get("rrf_score"),
+                    hybrid_sources=r.get("hybrid_sources"),
                 )
                 for r in data.get("results", [])
             ],
@@ -131,6 +145,7 @@ class QueryMixin:
         vector_db: str,
         vector_db_config: dict,
         top_k: int = 5,
+        hybrid_search: bool = False,
     ) -> QueryVectorDBResult:
         """Async version of :meth:`query_vectordb`."""
         payload: dict = {
@@ -143,6 +158,8 @@ class QueryMixin:
             },
             "vector_db": {"provider": vector_db, **vector_db_config},
         }
+        if hybrid_search:
+            payload["hybrid_search"] = True
         data = await self._client._post_async("/v1/query", json=payload)
         return QueryVectorDBResult(
             query=data.get("query", query),
@@ -151,11 +168,14 @@ class QueryMixin:
             vector_db_provider=data.get("vector_db_provider", vector_db),
             top_k_requested=data.get("top_k_requested", top_k),
             chunks_retrieved=data.get("chunks_retrieved", 0),
+            hybrid_search=bool(data.get("hybrid_search", False)),
             results=[
                 QueryResult(
                     text=r.get("text", ""),
                     score=float(r.get("score", 0.0)),
                     metadata=r.get("metadata", {}),
+                    rrf_score=r.get("rrf_score"),
+                    hybrid_sources=r.get("hybrid_sources"),
                 )
                 for r in data.get("results", [])
             ],

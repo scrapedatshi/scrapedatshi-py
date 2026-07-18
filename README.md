@@ -191,11 +191,40 @@ Optional parameters:
 result = client.pipeline.chunk_url(
     "https://docs.example.com/guide",
     selector="article",      # CSS selector to target main content
-    chunk_size=512,           # tokens per chunk (default: 400)
-    overlap=50,               # token overlap between chunks (default: 40)
+    chunk_size=512,           # tokens per chunk (default: 512)
+    overlap=50,               # token overlap between chunks (default: 50)
     js_render=True,           # headless Chromium for SPAs
 )
 ```
+
+### Hierarchical (Parent-Child) Chunking
+
+Hierarchical chunking produces **small child chunks** (~128 tokens) for precise vector matching, each carrying a **larger parent chunk** (~512 tokens) as metadata. When a child chunk matches a query, the LLM receives the full parent chunk for context — dramatically improving cross-referencing accuracy.
+
+```python
+result = client.pipeline.chunk_url(
+    "https://docs.example.com",
+    hierarchical=True,        # enable parent-child chunking
+    child_chunk_size=128,     # child chunk size (default: 128 tokens)
+    chunk_size=512,           # parent chunk size (default: 512 tokens)
+)
+
+print(f"Got {result.total_chunks} child chunks (hierarchical={result.hierarchical})")
+for chunk in result.chunks:
+    print(f"Child ({chunk.token_estimate} tokens): {chunk.content[:80]}")
+    if chunk.parent_text:
+        print(f"Parent ({chunk.parent_index}): {chunk.parent_text[:120]}")
+```
+
+**When to use hierarchical chunking:**
+- Long-form documentation where a single sentence needs surrounding context to be meaningful
+- Multi-hop questions that require cross-referencing information across sections
+- Any corpus where small chunks improve search precision but large chunks improve answer quality
+
+**How to use the results in your RAG pipeline:**
+- **Embed** `chunk.content` (the small child chunk) into your vector DB
+- **Feed** `chunk.parent_text` (the large parent chunk) to the LLM as context on retrieval
+- The `parent_text` is also stored in vector DB metadata automatically when using `sync()` or `ingest()`
 
 ### Chunk a PDF URL
 
@@ -405,6 +434,8 @@ result = client.pipeline.sync(
         "api_key": "pc-...",
         "index_host": "https://my-index-abc123.svc.pinecone.io",
     },
+    # hierarchical=True,      # optional: parent-child chunking for better retrieval
+    # child_chunk_size=128,   # child chunk size when hierarchical=True
 )
 print(f"Upserted {result.vectors_upserted} vectors ({result.total_tokens} tokens)")
 print(f"Cost: ${result.credits_used:.4f}")
@@ -424,6 +455,7 @@ result = client.pipeline.ingest(
         "collection_name": "documents",
         "api_key": "qdrant-key",
     },
+    # hierarchical=True,      # optional: parent-child chunking for better retrieval
 )
 print(f"Ingested {result.chunks_created} chunks → {result.vectors_upserted} vectors")
 ```
@@ -553,9 +585,46 @@ result = client.pipeline.query_vectordb(
 print(f"Found {result.chunks_retrieved} results (cost: ${result.credits_used:.4f})")
 for r in result.results:
     print(f"  [{r.score:.2f}] {r.text[:100]}...")
+    # For hierarchical chunks, use parent_text as LLM context:
+    if r.metadata.get("is_hierarchical") and r.metadata.get("parent_text"):
+        print(f"  → LLM context: {r.metadata['parent_text'][:120]}...")
 ```
 
 **Billing:** $0.0002 per chunk returned. Default `top_k=5` → $0.001 per query.
+
+### Hybrid Search — Vector + BM25 Keyword (RRF)
+
+Standard vector search is "single-hop" — it finds semantically similar chunks but can miss exact keyword matches (IDs, error codes, names). Hybrid search combines dense vector similarity with BM25 keyword search using **Reciprocal Rank Fusion (RRF)**, enabling cross-referencing across separate documents.
+
+```python
+result = client.pipeline.query_vectordb(
+    query="Who manages Project Alpha?",
+    embedding_provider="openai",
+    embedding_api_key=os.getenv("OPENAI_API_KEY"),
+    embedding_model="text-embedding-3-small",
+    vector_db="lancedb",
+    vector_db_config={"db_path": "./lancedb", "table_name": "docs"},
+    top_k=5,
+    hybrid_search=True,   # ← enable BM25 + vector + RRF
+)
+
+print(f"Hybrid search: {result.hybrid_search}")
+for r in result.results:
+    print(f"  [rrf={r.rrf_score:.4f}] sources={r.hybrid_sources} — {r.text[:80]}...")
+    # r.hybrid_sources: ['vector'], ['keyword'], or ['vector', 'keyword']
+    # Chunks in both lists get a combined RRF score boost
+```
+
+**Provider support:**
+- **LanceDB** — native FTS index (best accuracy; requires FTS index on table)
+- **Qdrant** — native MatchText payload filter
+- **Supabase** — PostgreSQL `ts_rank` full-text search
+- **All others** (Pinecone, Chroma, Weaviate, MongoDB) — client-side keyword scoring fallback
+
+**When to use hybrid search:**
+- Queries containing exact identifiers: IDs, error codes, product names, version numbers
+- Multi-hop questions: "Who manages Project Alpha?" (requires linking ID 902 → Sarah Jenkins)
+- Business data with structured fields that semantic search alone misses
 
 ### RAG Chat — retrieve chunks and generate a grounded answer
 
@@ -861,6 +930,7 @@ result.chunks                  # list[Chunk]
 result.total_chunks            # int
 result.source                  # str
 result.selectors_found         # list[str] — CSS selectors for detected content sections
+result.hierarchical            # bool — True when hierarchical (parent-child) chunking was used
 result.contextual_retrieval_used  # bool
 result.content_truncated       # bool — True if content exceeded ~75,000 words
 result.credits_used            # float
@@ -870,10 +940,13 @@ result.credits_remaining       # float
 ### `Chunk`
 
 ```python
-chunk.content              # str — the chunk text
+chunk.content              # str — the chunk text (child chunk when hierarchical=True)
 chunk.token_estimate       # int — estimated token count
 chunk.original_text        # str | None — raw text before CR enrichment
 chunk.context              # str | None — LLM-generated per-chunk context
+chunk.parent_text          # str | None — larger parent chunk text (hierarchical mode only)
+chunk.parent_index         # int | None — which parent this child belongs to
+chunk.is_hierarchical      # bool — True when produced by hierarchical chunking
 chunk.metadata             # dict — source URL, page number, etc.
 chunk.code_metadata        # dict | None — set for .py/.sql files (see Code-Aware Chunking)
 ```
@@ -898,8 +971,34 @@ result.vectors_upserted    # int
 result.total_tokens        # int
 result.embedding_provider  # str
 result.vector_db_provider  # str
+result.hierarchical        # bool — True when hierarchical chunking was used
 result.credits_used        # float
 result.credits_remaining   # float
+```
+
+### `QueryVectorDBResult`
+
+```python
+result.query               # str
+result.chunks_retrieved    # int
+result.hybrid_search       # bool — True when hybrid (vector + BM25 + RRF) search was used
+result.results             # list[QueryResult]
+result.credits_used        # float
+result.credits_remaining   # float
+```
+
+### `QueryResult`
+
+```python
+r.text             # str — chunk text (child chunk when hierarchical)
+r.score            # float — similarity score (0–1)
+r.metadata         # dict — url, chunk_index, parent_text, is_hierarchical, etc.
+r.rrf_score        # float | None — RRF score when hybrid_search=True
+r.hybrid_sources   # list[str] | None — ['vector'], ['keyword'], or ['vector', 'keyword']
+
+# For hierarchical chunks — use parent_text as LLM context:
+if r.metadata.get("is_hierarchical"):
+    llm_context = r.metadata.get("parent_text", r.text)
 ```
 
 ### `IngestScrapedResult`

@@ -286,9 +286,15 @@ URL = "https://docs.example.com"   # ← EDIT: the URL to scrape
 
 # Optional settings (uncomment to use)
 # SELECTOR = "article"             # CSS selector to target main content
-# CHUNK_SIZE = 512                 # tokens per chunk (default: 400)
-# OVERLAP = 50                     # token overlap between chunks (default: 40)
+# CHUNK_SIZE = 512                 # tokens per chunk (default: 512)
+# OVERLAP = 50                     # token overlap between chunks (default: 50)
 # JS_RENDER = False                # set True for JavaScript-heavy SPAs (billed at $0.0050/URL)
+
+# Hierarchical (parent-child) chunking — small child chunks for embedding,
+# large parent chunks stored as metadata for LLM context on retrieval.
+# Improves cross-referencing accuracy for long-form docs and multi-hop questions.
+# HIERARCHICAL = True
+# CHILD_CHUNK_SIZE = 128           # child chunk size (default: 128 tokens)
 
 # Authenticated scraping — cookies stay on your machine, never sent to our servers
 # COOKIES = {"session": "abc123", "csrf": "xyz"}
@@ -580,6 +586,11 @@ VECTOR_DB_CONFIG = {                       # ← EDIT: your vector DB config
 # OVERLAP = 50
 # JS_RENDER = False                        # set True for JavaScript-heavy SPAs ($0.0050/URL)
 
+# Hierarchical (parent-child) chunking — small child chunks for embedding,
+# large parent chunks stored as metadata for LLM context on retrieval.
+# HIERARCHICAL = True
+# CHILD_CHUNK_SIZE = 128                   # child chunk size (default: 128 tokens)
+
 # Authenticated scraping — cookies stay on your machine, never sent to our servers
 # COOKIES = {"session": "abc123"}
 # HEADERS = {"Authorization": "Bearer eyJ..."}
@@ -646,6 +657,11 @@ VECTOR_DB_CONFIG = {
 # Optional settings (uncomment to use)
 # CHUNK_SIZE = 512
 # OVERLAP = 50
+
+# Hierarchical (parent-child) chunking — small child chunks for embedding,
+# large parent chunks stored as metadata for LLM context on retrieval.
+# HIERARCHICAL = True
+# CHILD_CHUNK_SIZE = 128                   # child chunk size (default: 128 tokens)
 
 # Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
 # CONTEXTUAL_RETRIEVAL = True
@@ -2119,6 +2135,10 @@ _EXAMPLES["10_query_vdb.py"] = '''\
 
 Embeds a natural language query and retrieves the most relevant chunks.
 Run 12_inspect_vdb.py first to confirm the correct embedding model.
+
+Supports hybrid search (vector + BM25 keyword + Reciprocal Rank Fusion):
+  - Best for: exact IDs, error codes, names, multi-hop cross-referencing
+  - Natively supported by LanceDB and Qdrant; client-side fallback for others
 """
 
 import json
@@ -2141,6 +2161,10 @@ VECTOR_DB_CONFIG = {
     "api_key":    os.getenv("PINECONE_API_KEY"),
     "index_host": os.getenv("PINECONE_INDEX_HOST"),
 }
+
+# Hybrid search — vector + BM25 keyword + Reciprocal Rank Fusion (RRF)
+# Best for: exact IDs, error codes, names, multi-hop cross-referencing
+# HYBRID_SEARCH = True
 
 # ── OUTPUT FILE ───────────────────────────────────────────────────────────────
 # Results are saved as JSON next to this script. Auto-increments on collision.
@@ -2173,11 +2197,14 @@ result = client.pipeline.query_vectordb(
     vector_db=VECTOR_DB,
     vector_db_config=VECTOR_DB_CONFIG,
     top_k=TOP_K,
+    # hybrid_search=HYBRID_SEARCH,
 )
 
 # ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"Query:        {QUERY}")
 print(f"Results:      {result.chunks_retrieved}")
+if result.hybrid_search:
+    print(f"Hybrid:       True (vector + BM25 + RRF)")
 print(f"Credits used: ${result.credits_used:.4f}")
 print(f"Remaining:    ${result.credits_remaining:.4f}")
 
@@ -2186,14 +2213,23 @@ if SAVE_TO:
     out = _safe_path(SAVE_TO)
     with open(out, "w", encoding="utf-8") as f:
         json.dump(
-            [{"score": r.score, "text": r.text, "metadata": r.metadata} for r in result.results],
+            [
+                {
+                    "score": r.rrf_score if r.rrf_score is not None else r.score,
+                    "text": r.text,
+                    "metadata": r.metadata,
+                    "hybrid_sources": r.hybrid_sources,
+                }
+                for r in result.results
+            ],
             f, indent=2, ensure_ascii=False,
         )
     print(f"✅ Saved {result.chunks_retrieved} results → {out}")
 else:
     print()
     for i, r in enumerate(result.results, 1):
-        print(f"── Result {i}  [score: {r.score:.4f}] ──")
+        score = r.rrf_score if r.rrf_score is not None else r.score
+        print(f"── Result {i}  [score: {score:.4f}] ──")
         print(r.text[:400])
         print()
 '''
