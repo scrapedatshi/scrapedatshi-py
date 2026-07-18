@@ -166,7 +166,13 @@ def _safe_path(path):
 
 client = ScrapedatshiClient()  # reads SCRAPEDATSHI_API_KEY from .env
 
-result = client.pipeline.scrape_url(URL)
+result = client.pipeline.scrape_url(
+    URL,
+    # selector=SELECTOR,   # uncomment if SELECTOR is defined above
+    # js_render=JS_RENDER, # uncomment if JS_RENDER is defined above
+    # cookies=COOKIES,     # uncomment if COOKIES is defined above
+    # headers=HEADERS,     # uncomment if HEADERS is defined above
+)
 
 # ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"URL:          {result.source}")
@@ -732,7 +738,7 @@ if result.errors:
     print()
     print("Errors:")
     for err in result.errors:
-        print(f"  ✗ {err[\'file\']} — {err[\'error\']}")
+        print(f"  ✗ {err['file']} — {err['error']}")
 '''
 
 _EXAMPLES["09_autorag.py"] = '''\
@@ -1315,10 +1321,10 @@ print("EMBEDDING PROVIDERS")
 print("=" * 60)
 for key, info in EMBEDDING_PROVIDERS.items():
     req = "API key required" if info.get("requires_api_key") else "No API key"
-    print(f"  {key:12s}  {info[\'label\']}")
+    print(f"  {key:12s}  {info['label']}")
     print(f"             {req}")
     if info.get("notes"):
-        print(f"             {info[\'notes\']}")
+        print(f"             {info['notes']}")
     print()
 
 # ── Vector database providers ─────────────────────────────────────────────────
@@ -1328,7 +1334,7 @@ print("=" * 60)
 for key, info in VECTOR_DB_PROVIDERS.items():
     required = ", ".join(info.get("required_fields", []))
     optional = ", ".join(info.get("optional_fields", []))
-    print(f"  {key:20s}  {info[\'label\']}")
+    print(f"  {key:20s}  {info['label']}")
     print(f"                       Required fields: {required}")
     if optional:
         print(f"                       Optional fields: {optional}")
@@ -1339,9 +1345,9 @@ print("=" * 60)
 print("LLM PROVIDERS  (for schema extraction + contextual retrieval)")
 print("=" * 60)
 for key, info in LLM_PROVIDERS.items():
-    print(f"  {key:12s}  {info[\'label\']}")
+    print(f"  {key:12s}  {info['label']}")
     if info.get("notes"):
-        print(f"             {info[\'notes\']}")
+        print(f"             {info['notes']}")
     print()
 
 print("=" * 60)
@@ -1843,7 +1849,7 @@ if result.errors:
     print()
     print("Errors:")
     for err in result.errors:
-        print(f"  ✗ {err[\'file\']} — {err[\'error\']}")
+        print(f"  ✗ {err['file']} — {err['error']}")
 '''
 
 _EXAMPLES["07_autorag.py"] = '''\
