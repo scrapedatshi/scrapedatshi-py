@@ -31,7 +31,11 @@ class PipelineNamespace(ChunkMixin, IngestMixin, SyncMixin, ExtractMixin, QueryM
     """
     All pipeline operations, accessible via ``client.pipeline``.
 
-    Chunk-to-JSON (no embedding required):
+    Scrape to Markdown (simplest — no chunking required):
+        - scrape_url()       / scrape_url_async()
+        - scrape_file()      / scrape_file_async()
+
+    Chunk to JSON (no embedding required):
         - chunk_url()        / chunk_url_async()
         - chunk_file()       / chunk_file_async()
         - crawl()            / crawl_async()

@@ -125,6 +125,46 @@ client = ScrapedatshiClient(api_key="sds_...", fetch_mode="server")
 
 ---
 
+## Scrape to Markdown
+
+The simplest way to get clean text from any URL or local file — no chunking, no embedding, no vector DB required. Returns the full page or file content as clean Markdown.
+
+```python
+# Scrape a URL → Markdown
+result = client.pipeline.scrape_url("https://docs.example.com")
+print(result.markdown)
+print(f"Cost: ${result.credits_used:.4f}")
+
+# Optional parameters (all commented out by default)
+result = client.pipeline.scrape_url(
+    "https://docs.example.com/guide",
+    # selector="article",      # CSS selector to target main content
+    # js_render=True,          # headless Chromium for SPAs ($0.0050/URL surcharge)
+    # cookies={"session": "abc123"},   # authenticated scraping
+    # headers={"Authorization": "Bearer eyJ..."},
+)
+
+# Scrape a local file → Markdown
+result = client.pipeline.scrape_file("./docs/manual.pdf")
+print(result.markdown)
+print(f"Cost: ${result.credits_used:.4f}")
+```
+
+**`ScrapeResult` model:**
+
+```python
+result.markdown          # str — full page/file content as clean Markdown
+result.source            # str — URL or filename
+result.title             # str | None — page title (None for local files)
+result.content_truncated # bool — True if content exceeded ~75,000 words
+result.credits_used      # float
+result.credits_remaining # float
+```
+
+**Scrape = Markdown. Chunk = Chunks.** Use `scrape_url()` / `scrape_file()` when you want the raw text. Use `chunk_url()` / `chunk_file()` when you want RAG-optimized segments ready for embedding.
+
+---
+
 ## Chunk to JSON
 
 No embedding or vector DB required. Returns structured JSON chunks from any source.

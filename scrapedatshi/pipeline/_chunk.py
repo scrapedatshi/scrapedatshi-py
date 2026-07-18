@@ -1,9 +1,11 @@
 """
 scrapedatshi.pipeline._chunk
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Chunk-to-JSON methods: chunk_url, chunk_file, crawl.
+Scrape-to-Markdown and Chunk-to-JSON methods:
+    scrape_url, scrape_file — return raw Markdown
+    chunk_url, chunk_file, crawl — return structured JSON chunks
 
-No embedding or vector DB required — returns structured JSON chunks.
+No embedding or vector DB required.
 """
 
 from __future__ import annotations
@@ -17,14 +19,174 @@ if TYPE_CHECKING:
     from scrapedatshi.client import ScrapedatshiClient
 
 from scrapedatshi._file_parser import _extract_file_text_locally, _guess_source_type
-from scrapedatshi.models import ChunkResult, CrawlChunkResult
+from scrapedatshi.models import ChunkResult, CrawlChunkResult, ScrapeResult
 from scrapedatshi.pipeline._crawl_helpers import _crawl_locally, _crawl_locally_async
 
 
 class ChunkMixin:
-    """Mixin providing chunk_url, chunk_file, and crawl methods."""
+    """Mixin providing scrape_url, scrape_file, chunk_url, chunk_file, and crawl methods."""
 
     _client: "ScrapedatshiClient"
+
+    # ── Scrape to Markdown — URL ──────────────────────────────────────────────
+
+    def scrape_url(
+        self,
+        url: str,
+        *,
+        selector: str | None = None,
+        js_render: bool = False,
+        cookies: dict | None = None,
+        headers: dict | None = None,
+        storage_state: dict | None = None,
+    ) -> ScrapeResult:
+        """
+        Scrape a URL and return the full page content as clean Markdown.
+
+        No chunking, no embedding, no vector DB required — this is the simplest
+        way to get clean text from any URL.  In local-fetch mode (default), the
+        page is fetched on your machine using your IP address.
+
+        Args:
+            url:           The URL to scrape.
+            selector:      Optional CSS selector to target a specific element.
+            js_render:     Use headless Chromium to render JavaScript before scraping.
+            cookies:       Session cookies for authenticated scraping (local-fetch only).
+            headers:       Additional HTTP headers (local-fetch only).
+            storage_state: Playwright storage state dict for SSO/MFA authenticated scraping.
+
+        Returns:
+            :class:`~scrapedatshi.models.ScrapeResult` with ``markdown``, ``title``,
+            ``source``, ``content_truncated``, ``credits_used``, ``credits_remaining``.
+        """
+        payload: dict = {"url": url}
+        if selector:
+            payload["selector"] = selector
+        if js_render:
+            payload["js_render"] = True
+
+        if self._client.fetch_mode == "local":
+            html = self._client._fetch_url_locally(
+                url, cookies=cookies, extra_headers=headers
+            )
+            payload["html"] = html
+
+        data = self._client._post("/v1/process-html", json=payload)
+        metadata = data.get("metadata") or {}
+        return ScrapeResult(
+            markdown=data.get("markdown", ""),
+            source=url,
+            title=metadata.get("title") if isinstance(metadata, dict) else None,
+            content_truncated=bool(data.get("content_truncated", False)),
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    async def scrape_url_async(
+        self,
+        url: str,
+        *,
+        selector: str | None = None,
+        js_render: bool = False,
+        cookies: dict | None = None,
+        headers: dict | None = None,
+        storage_state: dict | None = None,
+    ) -> ScrapeResult:
+        """Async version of :meth:`scrape_url`."""
+        payload: dict = {"url": url}
+        if selector:
+            payload["selector"] = selector
+        if js_render:
+            payload["js_render"] = True
+
+        if self._client.fetch_mode == "local":
+            html = await self._client._fetch_url_locally_async(
+                url, cookies=cookies, extra_headers=headers
+            )
+            payload["html"] = html
+
+        data = await self._client._post_async("/v1/process-html", json=payload)
+        metadata = data.get("metadata") or {}
+        return ScrapeResult(
+            markdown=data.get("markdown", ""),
+            source=url,
+            title=metadata.get("title") if isinstance(metadata, dict) else None,
+            content_truncated=bool(data.get("content_truncated", False)),
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    # ── Scrape to Markdown — File ─────────────────────────────────────────────
+
+    def scrape_file(
+        self,
+        file_path: str | Path,
+    ) -> ScrapeResult:
+        """
+        Parse a local file and return its content as clean Markdown text.
+
+        Supports PDF, MD, TXT, YAML, YML, JSON, CSV, XLSX, DOCX, IPYNB, HTML,
+        XML, and all common code files (.py, .js, .ts, .sql, .go, .rb, etc.).
+        In local-fetch mode (default), the file is parsed on your machine.
+
+        Args:
+            file_path: Path to the local file to parse.
+
+        Returns:
+            :class:`~scrapedatshi.models.ScrapeResult` with ``markdown``,
+            ``source``, ``credits_used``, ``credits_remaining``.
+        """
+        path = Path(file_path)
+        text = _extract_file_text_locally(path)
+        payload: dict = {
+            "url": f"file://{path.name}",
+            "text": text,
+            "source_type": _guess_source_type(path),
+            # chunk_size=1 forces the server to return the full text as a single
+            # "chunk" — we then extract the text and return it as raw Markdown.
+            "chunk_size": 4096,
+            "overlap": 0,
+        }
+        data = self._client._post("/v1/process-text", json=payload)
+        # Reassemble all chunks back into a single Markdown string
+        chunks = data.get("chunks", [])
+        markdown = "\n\n".join(c.get("text", "") for c in chunks).strip()
+        return ScrapeResult(
+            markdown=markdown,
+            source=path.name,
+            title=None,
+            content_truncated=False,
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
+
+    async def scrape_file_async(
+        self,
+        file_path: str | Path,
+    ) -> ScrapeResult:
+        """Async version of :meth:`scrape_file`."""
+        import asyncio as _asyncio
+
+        path = Path(file_path)
+        text = await _asyncio.to_thread(_extract_file_text_locally, path)
+        payload: dict = {
+            "url": f"file://{path.name}",
+            "text": text,
+            "source_type": _guess_source_type(path),
+            "chunk_size": 4096,
+            "overlap": 0,
+        }
+        data = await self._client._post_async("/v1/process-text", json=payload)
+        chunks = data.get("chunks", [])
+        markdown = "\n\n".join(c.get("text", "") for c in chunks).strip()
+        return ScrapeResult(
+            markdown=markdown,
+            source=path.name,
+            title=None,
+            content_truncated=False,
+            credits_used=float(data.get("credits_used", 0.0)),
+            credits_remaining=float(data.get("credits_remaining", 0.0)),
+        )
 
     # ── Chunk to JSON — URL ───────────────────────────────────────────────────
 

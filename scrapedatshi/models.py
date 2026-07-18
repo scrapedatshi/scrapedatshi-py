@@ -83,6 +83,60 @@ class Chunk(BaseModel):
         return f"Chunk(tokens={self.token_estimate}, content={preview!r}...)"
 
 
+# ── Scrape to Markdown responses ─────────────────────────────────────────────
+
+
+class ScrapeResult(BaseModel):
+    """
+    Response from scrape_url() or scrape_file().
+
+    Returns the full page or file content as clean Markdown — no chunking,
+    no embedding, no vector DB required.  This is the simplest way to get
+    clean text from any URL or local file.
+
+    Example::
+
+        result = client.pipeline.scrape_url("https://docs.example.com")
+        print(result.markdown)
+        print(f"Cost: ${result.credits_used:.4f} | Remaining: ${result.credits_remaining:.4f}")
+    """
+
+    markdown: str = Field(
+        ...,
+        description="The full page or file content as clean Markdown text.",
+    )
+    source: str = Field(
+        ...,
+        description="The source URL or filename that was processed.",
+    )
+    title: str | None = Field(
+        None,
+        description="Page title extracted from HTML metadata (None for local files).",
+    )
+    content_truncated: bool = Field(
+        False,
+        description=(
+            "True if the source content exceeded the maximum content size (~75,000 words) "
+            "and was automatically truncated."
+        ),
+    )
+    credits_used: float = Field(
+        0.0,
+        description="Credits deducted for this request (URL fetch fee).",
+    )
+    credits_remaining: float = Field(
+        0.0,
+        description="Account credit balance after this request.",
+    )
+
+    def __len__(self) -> int:
+        return len(self.markdown)
+
+    def __repr__(self) -> str:
+        preview = self.markdown[:60].replace("\n", " ")
+        return f"ScrapeResult(source={self.source!r}, chars={len(self.markdown)}, preview={preview!r}...)"
+
+
 # ── Chunk to JSON responses ───────────────────────────────────────────────────
 
 
