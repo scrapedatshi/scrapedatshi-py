@@ -48,19 +48,22 @@ my-project/
 ├── README.md
 └── examples/
     ├── 00_discover_providers.py   ← list all providers + required fields (no keys needed)
-    ├── 01_chunk_url.py
-    ├── 02_chunk_file.py
-    ├── 03_crawl_site.py
-    ├── 04_sync_to_vdb.py
-    ├── 05_ingest_file.py
-    ├── 06_ingest_scraped.py
-    ├── 07_autorag.py
-    ├── 08_schema_extract.py
-    ├── 09_extract_crawl.py
-    ├── 10_query_vdb.py
-    ├── 11_rag_chat.py
-    ├── 12_inspect_vdb.py
-    └── 13_capture_session.py
+    ├── 01_scrape_url.py
+    ├── 02_pdf_extract.py
+    ├── 03_scrape_file.py
+    ├── 04_chunk_url.py
+    ├── 05_chunk_file.py
+    ├── 06_crawl_site.py
+    ├── 07_sync_to_vdb.py
+    ├── 08_ingest_file.py
+    ├── 09_ingest_scraped.py
+    ├── 10_autorag.py
+    ├── 11_schema_extract.py
+    ├── 12_extract_crawl.py
+    ├── 13_query_vdb.py
+    ├── 14_rag_chat.py
+    ├── 15_inspect_vdb.py
+    └── 16_capture_session.py
 ```
 
 Each script has a clearly marked `# ── CONFIGURE ──` block at the top — just fill in your target URL, file path, or keys and run it. Start with `00_discover_providers.py` to see all supported providers and the env vars each one needs.
@@ -68,7 +71,7 @@ Each script has a clearly marked `# ── CONFIGURE ──` block at the top �
 ```bash
 cd my-project
 python examples/00_discover_providers.py
-python examples/01_chunk_url.py
+python examples/01_scrape_url.py
 ```
 
 **Output files:** Content-returning scripts (01, 02, 03, 08–11) automatically save results as JSON next to the script. Credits and job stats always print to the terminal. The filename auto-increments if it already exists (`chunks.json` → `chunks(1).json`) so no run overwrites a previous result. Set `SAVE_TO = None` in any script to print everything to the terminal instead.
@@ -168,6 +171,71 @@ result.credits_remaining # float
 `selectors_found` is always empty for `scrape_file()` — CSS selectors are an HTML concept.
 
 **Scrape = Markdown. Chunk = Chunks.** Use `scrape_url()` / `scrape_file()` when you want the raw text. Use `chunk_url()` / `chunk_file()` when you want RAG-optimized segments ready for embedding.
+
+---
+
+## PDF Extract
+
+Extract clean text or structured tables from any PDF — by URL or local file. No chunking, no embedding, no vector DB required.
+
+**Billing:**
+- File upload: **$0.0020** per request
+- URL fetch: **$0.0040** per request (server fetches the PDF)
+
+### Extract text from a PDF URL
+
+```python
+result = client.pipeline.pdf_extract(url="https://example.com/annual-report.pdf")
+print(result.text)
+print(f"Cost: ${result.credits_used:.4f}")
+```
+
+### Extract text from a local PDF file
+
+```python
+result = client.pipeline.pdf_extract(file_path="./docs/manual.pdf")
+print(result.text)
+print(f"Cost: ${result.credits_used:.4f}")
+```
+
+### Extract tables from a PDF
+
+```python
+result = client.pipeline.pdf_extract(
+    url="https://example.com/data.pdf",
+    mode="tables",
+)
+for table in result.tables or []:
+    print(table)
+```
+
+**`PdfExtractResult` model:**
+
+```python
+result.source            # str — URL or filename
+result.mode              # str — "text" or "tables"
+result.text              # str | None — Markdown text (mode="text")
+result.tables            # list | None — structured table data (mode="tables")
+result.credits_used      # float
+result.credits_remaining # float
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `str \| None` | `None` | Direct PDF URL (S3, CDN, `.pdf` link) |
+| `file_path` | `str \| Path \| None` | `None` | Path to a local `.pdf` file |
+| `mode` | `str` | `"text"` | `"text"` for Markdown, `"tables"` for structured table data |
+| `preserve_headings` | `bool` | `True` | Attempt to preserve heading structure in text mode |
+
+Exactly one of `url` or `file_path` must be provided.
+
+**Async version:**
+
+```python
+result = await client.pipeline.pdf_extract_async(url="https://example.com/report.pdf")
+```
 
 ---
 

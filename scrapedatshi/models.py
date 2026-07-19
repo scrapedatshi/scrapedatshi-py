@@ -174,6 +174,85 @@ class ScrapeResult(BaseModel):
         return f"ScrapeResult(source={self.source!r}, chars={len(self.markdown)}, preview={preview!r}...)"
 
 
+# ── PDF Extract response ──────────────────────────────────────────────────────
+
+
+class PdfExtractResult(BaseModel):
+    """
+    Response from pipeline.pdf_extract() — extract text or tables from a PDF.
+
+    Provide either a direct PDF URL or a local file path. The result contains
+    either clean Markdown text (``mode="text"``) or structured table data
+    (``mode="tables"``).
+
+    Billing:
+        - File upload: **$0.0020** per request
+        - URL fetch:   **$0.0040** per request (server fetches the PDF)
+
+    Example::
+
+        # Extract text from a PDF URL
+        result = client.pipeline.pdf_extract(url="https://example.com/report.pdf")
+        print(result.text)
+        print(f"Cost: ${result.credits_used:.4f} | Remaining: ${result.credits_remaining:.4f}")
+
+        # Extract text from a local PDF file
+        result = client.pipeline.pdf_extract(file_path="./docs/manual.pdf")
+        print(result.text)
+
+        # Extract tables
+        result = client.pipeline.pdf_extract(url="https://example.com/data.pdf", mode="tables")
+        for table in result.tables or []:
+            print(table)
+    """
+
+    source: str = Field(
+        ...,
+        description="The source URL or filename that was processed.",
+    )
+    mode: str = Field(
+        ...,
+        description="Extraction mode used: 'text' or 'tables'.",
+    )
+    text: str | None = Field(
+        None,
+        description=(
+            "The extracted PDF content as clean Markdown text. "
+            "Set when mode='text'. None when mode='tables'."
+        ),
+    )
+    tables: list | None = Field(
+        None,
+        description=(
+            "Structured table data extracted from the PDF. "
+            "Each item is a dict with 'page', 'table_index', and 'rows' (list of row dicts). "
+            "Set when mode='tables'. None when mode='text'."
+        ),
+    )
+    credits_used: float = Field(
+        0.0,
+        description="Credits deducted for this request ($0.0020 file / $0.0040 URL).",
+    )
+    credits_remaining: float = Field(
+        0.0,
+        description="Account credit balance after this request.",
+    )
+
+    def __len__(self) -> int:
+        if self.text is not None:
+            return len(self.text)
+        if self.tables is not None:
+            return len(self.tables)
+        return 0
+
+    def __repr__(self) -> str:
+        if self.mode == "tables":
+            count = len(self.tables) if self.tables else 0
+            return f"PdfExtractResult(source={self.source!r}, mode='tables', tables={count}, credits_used={self.credits_used:.4f})"
+        preview = (self.text or "")[:60].replace("\n", " ")
+        return f"PdfExtractResult(source={self.source!r}, mode='text', chars={len(self.text or '')}, preview={preview!r}...)"
+
+
 # ── Chunk to JSON responses ───────────────────────────────────────────────────
 
 

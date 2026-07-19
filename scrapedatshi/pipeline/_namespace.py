@@ -23,17 +23,23 @@ if TYPE_CHECKING:
 from scrapedatshi.pipeline._chunk import ChunkMixin
 from scrapedatshi.pipeline._extract import ExtractMixin
 from scrapedatshi.pipeline._ingest import IngestMixin
+from scrapedatshi.pipeline._pdf import PdfMixin
 from scrapedatshi.pipeline._query import QueryMixin
 from scrapedatshi.pipeline._sync import SyncMixin
 
 
-class PipelineNamespace(ChunkMixin, IngestMixin, SyncMixin, ExtractMixin, QueryMixin):
+class PipelineNamespace(
+    ChunkMixin, IngestMixin, SyncMixin, ExtractMixin, QueryMixin, PdfMixin
+):
     """
     All pipeline operations, accessible via ``client.pipeline``.
 
     Scrape to Markdown (simplest — no chunking required):
         - scrape_url()       / scrape_url_async()
         - scrape_file()      / scrape_file_async()
+
+    PDF Extract (extract text or tables from a PDF):
+        - pdf_extract()      / pdf_extract_async()
 
     Chunk to JSON (no embedding required):
         - chunk_url()        / chunk_url_async()

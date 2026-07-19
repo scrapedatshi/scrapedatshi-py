@@ -7,6 +7,7 @@ All pipeline methods are accessible via ``client.pipeline.*``.
 The implementation is split across focused submodules:
 
     _chunk.py        — chunk_url, chunk_file, crawl
+    _pdf.py          — pdf_extract
     _ingest.py       — ingest, ingest_folder
     _sync.py         — sync, autorag
     _extract.py      — extract, extract_crawl

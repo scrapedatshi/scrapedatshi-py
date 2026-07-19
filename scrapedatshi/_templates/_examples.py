@@ -1,0 +1,1378 @@
+"""
+scrapedatshi._templates._examples
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+All example scripts scaffolded by ``scrapedatshi init``.
+
+The EXAMPLES dict maps filename → script content.
+Scripts are written to examples/ in the new project directory.
+"""
+
+EXAMPLES: dict[str, str] = {}
+
+# ── 00: Discover providers ────────────────────────────────────────────────────
+
+EXAMPLES["00_discover_providers.py"] = '''\
+"""
+00_discover_providers.py — List all supported providers and required config fields.
+
+Run this first to see what embedding models, vector databases, and LLM providers
+are available, and which environment variables / config fields each one needs.
+
+No API keys required to run this script.
+"""
+
+from scrapedatshi.providers import EMBEDDING_PROVIDERS, VECTOR_DB_PROVIDERS, LLM_PROVIDERS
+
+# ── Embedding providers ───────────────────────────────────────────────────────
+print("=" * 60)
+print("EMBEDDING PROVIDERS")
+print("=" * 60)
+for key, info in EMBEDDING_PROVIDERS.items():
+    req = "API key required" if info.get("requires_api_key") else "No API key"
+    print(f"  {key:12s}  {info[\'label\']}")
+    print(f"             {req}")
+    if info.get("notes"):
+        print(f"             {info[\'notes\']}")
+    print()
+
+# ── Vector database providers ─────────────────────────────────────────────────
+print("=" * 60)
+print("VECTOR DATABASE PROVIDERS")
+print("=" * 60)
+for key, info in VECTOR_DB_PROVIDERS.items():
+    required = ", ".join(info.get("required_fields", []))
+    optional = ", ".join(info.get("optional_fields", []))
+    print(f"  {key:20s}  {info[\'label\']}")
+    print(f"                       Required fields: {required}")
+    if optional:
+        print(f"                       Optional fields: {optional}")
+    print()
+
+# ── LLM providers ─────────────────────────────────────────────────────────────
+print("=" * 60)
+print("LLM PROVIDERS  (for schema extraction + contextual retrieval)")
+print("=" * 60)
+for key, info in LLM_PROVIDERS.items():
+    print(f"  {key:12s}  {info[\'label\']}")
+    if info.get("notes"):
+        print(f"             {info[\'notes\']}")
+    print()
+
+print("=" * 60)
+print("ENV VARS TO SET IN .env")
+print("=" * 60)
+print("""
+  SCRAPEDATSHI_API_KEY   — your scrapedatshi API key (required for all calls)
+
+  Embedding:
+    OPENAI_API_KEY       — OpenAI embeddings + LLM
+    COHERE_API_KEY       — Cohere embeddings
+    GEMINI_API_KEY       — Google Gemini embeddings + LLM
+    MISTRAL_API_KEY      — Mistral embeddings
+    VOYAGE_API_KEY       — Voyage AI embeddings
+    ANTHROPIC_API_KEY    — Anthropic LLM (Claude)
+
+  Vector DB:
+    PINECONE_API_KEY + PINECONE_INDEX_HOST
+    QDRANT_URL + QDRANT_API_KEY
+    SUPABASE_CONNECTION_STRING + SUPABASE_TABLE_NAME
+    WEAVIATE_URL + WEAVIATE_API_KEY
+    MONGODB_CONNECTION_STRING + MONGODB_DATABASE_NAME + MONGODB_COLLECTION_NAME
+    CHROMA_HOST + CHROMA_PORT + CHROMA_COLLECTION_NAME  (local)
+    LANCEDB_PATH + LANCEDB_TABLE_NAME                   (local)
+""")
+'''
+
+# ── 01: Scrape URL ────────────────────────────────────────────────────────────
+
+EXAMPLES["01_scrape_url.py"] = '''\
+"""
+01_scrape_url.py — Scrape a URL and get the full page as clean Markdown.
+
+The simplest way to get text from any URL — no chunking, no embedding,
+no vector DB required. Results are saved as a .md file next to this script.
+
+No vector DB or embedding key required — just your scrapedatshi API key.
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+URL = "https://docs.example.com"   # ← EDIT: the URL to scrape
+
+# Optional settings (uncomment to use)
+# SELECTOR = "article"             # CSS selector to target main content
+# JS_RENDER = False                # set True for JavaScript-heavy SPAs (billed at $0.0050/URL)
+
+# Authenticated scraping — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123", "csrf": "xyz"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Markdown is saved next to this script. The filename auto-increments
+# if it already exists (scrape.md → scrape(1).md → scrape(2).md).
+# To print to terminal instead of saving: set SAVE_TO = None
+# To save to a custom location:          set SAVE_TO = "/path/to/output.md"
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scrape.md")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()  # reads SCRAPEDATSHI_API_KEY from .env
+
+result = client.pipeline.scrape_url(
+    URL,
+    # selector=SELECTOR,   # uncomment if SELECTOR is defined above
+    # js_render=JS_RENDER, # uncomment if JS_RENDER is defined above
+    # cookies=COOKIES,     # uncomment if COOKIES is defined above
+    # headers=HEADERS,     # uncomment if HEADERS is defined above
+)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"URL:          {result.source}")
+if result.title:
+    print(f"Title:        {result.title}")
+print(f"Length:       {len(result.markdown):,} chars")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+# Detected content sections — uncomment SELECTOR above and re-run to target one:
+if result.selectors_found:
+    print(f"Sections:     {result.selectors_found}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(result.markdown)
+    print(f"✅ Saved Markdown → {out}")
+else:
+    print()
+    print(result.markdown[:2000])
+    if len(result.markdown) > 2000:
+        print(f"\\n... ({len(result.markdown) - 2000:,} more chars)")
+'''
+
+# ── 02: PDF Extract ───────────────────────────────────────────────────────────
+
+EXAMPLES["02_pdf_extract.py"] = '''\
+"""
+02_pdf_extract.py — Extract clean text or structured tables from a PDF.
+
+Provide either a direct PDF URL or a local PDF file path.
+Results are saved as a .md file (text mode) or .json file (tables mode).
+
+Billing:
+  File upload: $0.0020 per request
+  URL fetch:   $0.0040 per request (server fetches the PDF)
+
+No vector DB or embedding key required — just your scrapedatshi API key.
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+# Provide ONE of the following (comment out the other):
+PDF_URL   = "https://example.com/report.pdf"   # ← EDIT: direct PDF URL
+# PDF_FILE  = "./docs/manual.pdf"              # ← EDIT: local PDF file path
+
+# Extraction mode:
+#   "text"   (default) — returns clean Markdown text
+#   "tables"           — returns structured table data as JSON
+MODE = "text"
+
+# Optional: set False to skip heading detection
+# PRESERVE_HEADINGS = True
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+# Text mode:   saved as .md next to this script (auto-increments on collision)
+# Tables mode: saved as .json next to this script
+# To print to terminal instead of saving: set SAVE_TO = None
+SAVE_TO = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "pdf_extract.md" if MODE == "text" else "pdf_tables.json",
+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()  # reads SCRAPEDATSHI_API_KEY from .env
+
+# Use PDF_URL or PDF_FILE — whichever is defined above
+result = client.pipeline.pdf_extract(
+    url=PDF_URL,
+    # file_path=PDF_FILE,   # uncomment to use a local file instead
+    mode=MODE,
+)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"Source:       {result.source}")
+print(f"Mode:         {result.mode}")
+if result.mode == "text" and result.text:
+    print(f"Length:       {len(result.text):,} chars")
+elif result.mode == "tables" and result.tables is not None:
+    print(f"Tables found: {len(result.tables)}")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    if result.mode == "text" and result.text:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(result.text)
+        print(f"✅ Saved Markdown → {out}")
+    elif result.mode == "tables" and result.tables is not None:
+        import json
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump(result.tables, f, indent=2, ensure_ascii=False)
+        print(f"✅ Saved {len(result.tables)} tables → {out}")
+else:
+    print()
+    if result.mode == "text" and result.text:
+        print(result.text[:2000])
+        if len(result.text) > 2000:
+            print(f"\\n... ({len(result.text) - 2000:,} more chars)")
+    elif result.mode == "tables" and result.tables:
+        import json
+        print(json.dumps(result.tables[:3], indent=2))
+        if len(result.tables) > 3:
+            print(f"\\n... ({len(result.tables) - 3} more tables)")
+'''
+
+# ── 03: Scrape file ───────────────────────────────────────────────────────────
+
+EXAMPLES["03_scrape_file.py"] = '''\
+"""
+03_scrape_file.py — Parse a local file and get the full content as clean Markdown.
+
+The simplest way to get text from any local file — no chunking, no embedding,
+no vector DB required. Results are saved as a .md file next to this script.
+
+Supports: .pdf, .md, .txt, .yaml, .yml, .json, .csv, .xlsx, .xls, .docx,
+          .ipynb, .html, .htm, .xml, .toml, .ini, .cfg,
+          .py, .js, .ts, .jsx, .tsx, .sql, .go, .rb, .java, .cs, .cpp,
+          .c, .rs, .php, .sh, .bash, .zsh, .r, .swift, .kt, .scala
+
+No vector DB or embedding key required — just your scrapedatshi API key.
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+FILE_PATH = "./docs/manual.pdf"    # ← EDIT: path to your local file
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scrape.md")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()  # reads SCRAPEDATSHI_API_KEY from .env
+
+result = client.pipeline.scrape_file(FILE_PATH)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"File:         {result.source}")
+print(f"Length:       {len(result.markdown):,} chars")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(result.markdown)
+    print(f"✅ Saved Markdown → {out}")
+else:
+    print()
+    print(result.markdown[:2000])
+    if len(result.markdown) > 2000:
+        print(f"\\n... ({len(result.markdown) - 2000:,} more chars)")
+'''
+
+# ── 04: Chunk URL ─────────────────────────────────────────────────────────────
+
+EXAMPLES["04_chunk_url.py"] = '''\
+"""
+04_chunk_url.py — Scrape a URL and chunk it into RAG-ready segments.
+
+No vector DB or embedding key required — just your scrapedatshi API key.
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+URL = "https://docs.example.com"   # ← EDIT: the URL to scrape
+
+# Optional settings (uncomment to use)
+# SELECTOR = "article"             # CSS selector to target main content
+# CHUNK_SIZE = 512                 # tokens per chunk (default: 512)
+# OVERLAP = 50                     # token overlap between chunks (default: 50)
+# JS_RENDER = False                # set True for JavaScript-heavy SPAs (billed at $0.0050/URL)
+
+# Hierarchical (parent-child) chunking — small child chunks for embedding,
+# large parent chunks stored as metadata for LLM context on retrieval.
+# HIERARCHICAL = True
+# CHILD_CHUNK_SIZE = 128           # child chunk size (default: 128 tokens)
+
+# Authenticated scraping — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123", "csrf": "xyz"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"         # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chunks.json")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()  # reads SCRAPEDATSHI_API_KEY from .env
+
+result = client.pipeline.chunk_url(URL)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"URL:          {result.source}")
+print(f"Chunks:       {result.total_chunks}")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"content": c.content, "token_estimate": c.token_estimate} for c in result.chunks],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.total_chunks} chunks → {out}")
+else:
+    print()
+    for i, chunk in enumerate(result.chunks, 1):
+        print(f"── Chunk {i} ({chunk.token_estimate} tokens) ──")
+        print(chunk.content[:300])
+        print()
+'''
+
+# ── 05: Chunk file ────────────────────────────────────────────────────────────
+
+EXAMPLES["05_chunk_file.py"] = '''\
+"""
+05_chunk_file.py — Parse a local file and chunk it into RAG-ready segments.
+
+Supports: .pdf, .md, .txt, .yaml, .yml, .json, .csv, .xlsx, .xls, .docx,
+          .ipynb, .html, .htm, .xml, .toml, .ini, .cfg,
+          .py, .js, .ts, .jsx, .tsx, .sql, .go, .rb, .java, .cs, .cpp,
+          .c, .rs, .php, .sh, .bash, .zsh, .r, .swift, .kt, .scala
+No vector DB or embedding key required.
+
+Fetch mode note:
+  local (default) — file parsed on your machine, text sent to server for chunking
+  server          — file sent to our server for parsing + OCR (use for scanned PDFs)
+
+Optional extras for Excel/Word parsing:
+  pip install scrapedatshi[excel]       # for .xlsx/.xls
+  pip install scrapedatshi[docx]        # for .docx
+  pip install scrapedatshi[all-parsers] # for both
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+FILE_PATH = "./docs/manual.pdf"    # ← EDIT: path to your local file
+
+# Optional settings (uncomment to use)
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"         # "openai", "anthropic", or "gemini"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+
+# For scanned/image-only PDFs that need OCR — switch to server fetch
+# client = ScrapedatshiClient(fetch_mode="server")
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chunks.json")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.chunk_file(FILE_PATH)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"File:         {result.source}")
+print(f"Chunks:       {result.total_chunks}")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"content": c.content, "token_estimate": c.token_estimate} for c in result.chunks],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.total_chunks} chunks → {out}")
+else:
+    print()
+    for i, chunk in enumerate(result.chunks, 1):
+        print(f"── Chunk {i} ({chunk.token_estimate} tokens) ──")
+        print(chunk.content[:300])
+        print()
+'''
+
+# ── 06: Crawl site ────────────────────────────────────────────────────────────
+
+EXAMPLES["06_crawl_site.py"] = '''\
+"""
+06_crawl_site.py — Crawl an entire site and chunk all pages.
+
+Two modes:
+  sitemap (default) — reads sitemap.xml, best for docs/blogs
+  spider            — follows links, works on any site
+
+No vector DB or embedding key required.
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+URL        = "https://docs.example.com"   # ← EDIT: root URL to crawl
+MAX_PAGES  = 10                           # ← EDIT: max pages to crawl
+CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
+
+# Optional filters (uncomment to use)
+# INCLUDE_PATTERN = "/docs/"             # only crawl URLs containing this
+# EXCLUDE_PATTERN = "/blog/"             # skip URLs containing this
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+# JS_RENDER = False
+
+# Authenticated crawl — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+# ALLOW_SUBDOMAINS = False               # set True to crawl subdomains
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crawl.json")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.crawl(
+    URL,
+    max_pages=MAX_PAGES,
+    crawl_mode=CRAWL_MODE,
+)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"URL:          {result.source_url}")
+print(f"Pages:        {result.pages_crawled}")
+print(f"Chunks:       {result.total_chunks}")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"url": c.metadata.get("source", ""), "content": c.content, "token_estimate": c.token_estimate} for c in result.chunks],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.total_chunks} chunks from {result.pages_crawled} pages → {out}")
+else:
+    print()
+    for i, chunk in enumerate(result.chunks[:5], 1):
+        print(f"── Chunk {i} ──")
+        print(chunk.content[:200])
+        print()
+'''
+
+# ── 07: Sync to VDB ──────────────────────────────────────────────────────────
+
+EXAMPLES["07_sync_to_vdb.py"] = '''\
+"""
+07_sync_to_vdb.py — Scrape a URL → embed → inject into your vector database.
+
+Full pipeline in one call. Requires embedding + vector DB keys.
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+URL = "https://docs.example.com"           # ← EDIT: URL to scrape and sync
+
+EMBEDDING_PROVIDER = "openai"              # ← EDIT: embedding provider key
+EMBEDDING_MODEL    = "text-embedding-3-small"
+EMBEDDING_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+VECTOR_DB = "pinecone"                     # ← EDIT: vector DB key
+VECTOR_DB_CONFIG = {
+    "api_key":    os.getenv("PINECONE_API_KEY"),
+    "index_host": os.getenv("PINECONE_INDEX_HOST"),
+}
+
+# Optional settings (uncomment to use)
+# SELECTOR = "article"
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+# JS_RENDER = False
+
+# Hierarchical (parent-child) chunking
+# HIERARCHICAL = True
+# CHILD_CHUNK_SIZE = 128
+
+# Authenticated scraping — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+# ─────────────────────────────────────────────────────────────────────────────
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.sync(
+    url=URL,
+    embedding_provider=EMBEDDING_PROVIDER,
+    embedding_api_key=EMBEDDING_API_KEY,
+    embedding_model=EMBEDDING_MODEL,
+    vector_db=VECTOR_DB,
+    vector_db_config=VECTOR_DB_CONFIG,
+)
+
+print(f"Status:          {result.status}")
+print(f"Chunks created:  {result.chunks_created}")
+print(f"Vectors upserted:{result.vectors_upserted}")
+print(f"Embedding:       {result.embedding_provider}")
+print(f"Vector DB:       {result.vector_db_provider}")
+print(f"Credits used:    ${result.credits_used:.4f}")
+print(f"Remaining:       ${result.credits_remaining:.4f}")
+'''
+
+# ── 08: Ingest file ───────────────────────────────────────────────────────────
+
+EXAMPLES["08_ingest_file.py"] = '''\
+"""
+08_ingest_file.py — Parse a local file → embed → inject into your vector database.
+
+Supports: .pdf, .md, .txt, .yaml, .yml, .json, .csv, .xlsx, .xls, .docx,
+          .ipynb, .html, .htm, .xml, .toml, .ini, .cfg,
+          .py (AST-aware), .sql (statement-aware),
+          .js, .ts, .jsx, .tsx, .go, .rb, .java, .cs, .cpp, .c, .rs, .php,
+          .sh, .bash, .zsh, .r, .swift, .kt, .scala
+Requires embedding + vector DB keys.
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+FILE_PATH = "./docs/manual.pdf"            # ← EDIT: path to your local file
+
+EMBEDDING_PROVIDER = "openai"
+EMBEDDING_MODEL    = "text-embedding-3-small"
+EMBEDDING_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+VECTOR_DB = "pinecone"
+VECTOR_DB_CONFIG = {
+    "api_key":    os.getenv("PINECONE_API_KEY"),
+    "index_host": os.getenv("PINECONE_INDEX_HOST"),
+}
+
+# Optional settings (uncomment to use)
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+
+# Hierarchical (parent-child) chunking
+# HIERARCHICAL = True
+# CHILD_CHUNK_SIZE = 128
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+
+# For scanned/image-only PDFs that need OCR — switch to server fetch
+# client = ScrapedatshiClient(fetch_mode="server")
+# ─────────────────────────────────────────────────────────────────────────────
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.ingest(
+    file_path=FILE_PATH,
+    embedding_provider=EMBEDDING_PROVIDER,
+    embedding_api_key=EMBEDDING_API_KEY,
+    embedding_model=EMBEDDING_MODEL,
+    vector_db=VECTOR_DB,
+    vector_db_config=VECTOR_DB_CONFIG,
+)
+
+print(f"Status:          {result.status}")
+print(f"Chunks created:  {result.chunks_created}")
+print(f"Vectors upserted:{result.vectors_upserted}")
+print(f"Credits used:    ${result.credits_used:.4f}")
+print(f"Remaining:       ${result.credits_remaining:.4f}")
+'''
+
+# ── 09: Ingest scraped ────────────────────────────────────────────────────────
+
+EXAMPLES["09_ingest_scraped.py"] = '''\
+"""
+09_ingest_scraped.py — Bulk-ingest a folder of pre-scraped files into your vector DB.
+
+Designed for output from web scrapers (Scrapy, Playwright, Apify, custom scripts).
+Each file is parsed locally, chunked, embedded, and injected individually.
+
+JSON arrays are automatically detected and each item ingested individually
+(Scrapy/crawler output format).
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+FOLDER_PATH = "./scraped_output/"          # ← EDIT: folder containing your files
+
+# Optional: restrict to specific file types (default: all supported types)
+# FILE_EXTENSIONS = [".json"]
+
+# Optional: delay between files in seconds (helps avoid rate limits on large folders)
+# BATCH_DELAY = 0.5
+
+EMBEDDING_PROVIDER = "openai"
+EMBEDDING_MODEL    = "text-embedding-3-small"
+EMBEDDING_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+VECTOR_DB = "pinecone"
+VECTOR_DB_CONFIG = {
+    "api_key":    os.getenv("PINECONE_API_KEY"),
+    "index_host": os.getenv("PINECONE_INDEX_HOST"),
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.ingest_scraped(
+    folder_path=FOLDER_PATH,
+    embedding_provider=EMBEDDING_PROVIDER,
+    embedding_api_key=EMBEDDING_API_KEY,
+    embedding_model=EMBEDDING_MODEL,
+    vector_db=VECTOR_DB,
+    vector_db_config=VECTOR_DB_CONFIG,
+)
+
+print(f"Files processed: {result.files_processed}")
+print(f"Files failed:    {result.files_failed}")
+print(f"Total chunks:    {result.total_chunks}")
+print(f"Vectors upserted:{result.vectors_upserted}")
+print(f"Credits used:    ${result.credits_used:.4f}")
+print(f"Remaining:       ${result.credits_remaining:.4f}")
+
+if result.errors:
+    print()
+    print("Errors:")
+    for err in result.errors:
+        print(f"  ✗ {err[\'file\']} — {err[\'error\']}")
+'''
+
+# ── 10: AutoRAG ───────────────────────────────────────────────────────────────
+
+EXAMPLES["10_autorag.py"] = '''\
+"""
+10_autorag.py — Crawl an entire site → embed → inject into your vector database.
+
+Full AutoRAG pipeline in one call. Large sites (>200 pages) are auto-batched.
+Requires embedding + vector DB keys.
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+URL        = "https://docs.example.com"   # ← EDIT: root URL to crawl
+MAX_PAGES  = 50                           # ← EDIT: max pages to crawl
+CRAWL_MODE = "sitemap"                    # "sitemap" or "spider"
+
+# Optional filters (uncomment to use)
+# INCLUDE_PATTERN = "/docs/"
+# EXCLUDE_PATTERN = "/blog/"
+# CHUNK_SIZE = 512
+# OVERLAP = 50
+# JS_RENDER = False
+
+# Authenticated crawl — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+# ALLOW_SUBDOMAINS = False
+
+# Contextual Retrieval (RAG 2.0) — boosts retrieval accuracy 35–50% ($0.0010/chunk)
+# CONTEXTUAL_RETRIEVAL = True
+# LLM_PROVIDER = "openai"
+# LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+# LLM_MODEL    = "gpt-4o-mini"
+
+EMBEDDING_PROVIDER = "openai"
+EMBEDDING_MODEL    = "text-embedding-3-small"
+EMBEDDING_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+VECTOR_DB = "pinecone"
+VECTOR_DB_CONFIG = {
+    "api_key":    os.getenv("PINECONE_API_KEY"),
+    "index_host": os.getenv("PINECONE_INDEX_HOST"),
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.autorag(
+    url=URL,
+    max_pages=MAX_PAGES,
+    crawl_mode=CRAWL_MODE,
+    embedding_provider=EMBEDDING_PROVIDER,
+    embedding_api_key=EMBEDDING_API_KEY,
+    embedding_model=EMBEDDING_MODEL,
+    vector_db=VECTOR_DB,
+    vector_db_config=VECTOR_DB_CONFIG,
+)
+
+print(f"Pages crawled:   {result.pages_crawled}")
+print(f"Vectors upserted:{result.vectors_upserted}")
+print(f"Credits used:    ${result.credits_used:.4f}")
+print(f"Remaining:       ${result.credits_remaining:.4f}")
+
+if getattr(result, "auto_batched", False):
+    print(f"Auto-batched:    {result.batches_processed} batches")
+'''
+
+# ── 11: Schema extract ────────────────────────────────────────────────────────
+
+EXAMPLES["11_schema_extract.py"] = '''\
+"""
+11_schema_extract.py — Extract structured JSON from a URL using your LLM.
+
+Define a schema and the API returns a typed JSON object.
+Requires an LLM API key (OpenAI, Anthropic, or Gemini).
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+URL = "https://example.com/products/widget-pro"  # ← EDIT: URL to extract from
+
+SCHEMA = {                                        # ← EDIT: your extraction schema
+    "title":       "string — the product name",
+    "price":       "number — the price in USD",
+    "in_stock":    "boolean — whether the item is in stock",
+    "description": "string — the product description",
+}
+
+LLM_PROVIDER = "openai"                           # ← EDIT: "openai", "anthropic", or "gemini"
+LLM_MODEL    = "gpt-4o-mini"
+LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+# Set to True to extract a list of items (e.g. product listing pages)
+EXTRACT_AS_LIST = False
+
+# Optional settings (uncomment to use)
+# SELECTOR = "article"
+# JS_RENDER = False
+
+# Authenticated scraping — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extracted.json")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.extract(
+    url=URL,
+    schema=SCHEMA,
+    llm_provider=LLM_PROVIDER,
+    llm_api_key=LLM_API_KEY,
+    llm_model=LLM_MODEL,
+    extract_as_list=EXTRACT_AS_LIST,
+)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"URL:          {result.url}")
+print(f"Fields:       {result.field_count}")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(result.extracted, f, indent=2, ensure_ascii=False)
+    print(f"✅ Saved extracted data → {out}")
+else:
+    print()
+    print("Extracted data:")
+    print(json.dumps(result.extracted, indent=2))
+'''
+
+# ── 12: Extract crawl ─────────────────────────────────────────────────────────
+
+EXAMPLES["12_extract_crawl.py"] = '''\
+"""
+12_extract_crawl.py — Crawl an entire site and extract structured data from every page.
+
+Each page is processed independently — failed pages don\'t abort the batch.
+Only successfully extracted pages are billed.
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+URL        = "https://example.com/products"  # ← EDIT: root URL to crawl
+MAX_PAGES  = 10
+CRAWL_MODE = "sitemap"                       # "sitemap" or "spider"
+
+SCHEMA = {
+    "title":    "string — the product name",
+    "price":    "number — the price in USD",
+    "in_stock": "boolean — whether the item is in stock",
+}
+
+LLM_PROVIDER = "openai"
+LLM_MODEL    = "gpt-4o-mini"
+LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+# Optional filters (uncomment to use)
+# INCLUDE_PATTERN = "/products/"
+# EXCLUDE_PATTERN = "/archive/"
+# JS_RENDER = False
+
+# Authenticated crawl — cookies stay on your machine, never sent to our servers
+# COOKIES = {"session": "abc123"}
+# HEADERS = {"Authorization": "Bearer eyJ..."}
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract_crawl.json")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.extract_crawl(
+    url=URL,
+    schema=SCHEMA,
+    llm_provider=LLM_PROVIDER,
+    llm_api_key=LLM_API_KEY,
+    llm_model=LLM_MODEL,
+    max_pages=MAX_PAGES,
+    crawl_mode=CRAWL_MODE,
+)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"Extracted: {result.pages_extracted}/{result.pages_attempted} pages")
+print(f"Failed:    {result.pages_failed} pages (not billed)")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    successful = [{"url": p.url, "extracted": p.extracted} for p in result.results if p.ok]
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(successful, f, indent=2, ensure_ascii=False)
+    print(f"✅ Saved {len(successful)} extracted pages → {out}")
+else:
+    print()
+    for page in result.results:
+        if page.ok:
+            print(f"  ✓ {page.url}")
+            print(f"    {page.extracted}")
+        else:
+            print(f"  ✗ {page.url} — {page.error}")
+'''
+
+# ── 13: Query VDB ─────────────────────────────────────────────────────────────
+
+EXAMPLES["13_query_vdb.py"] = '''\
+"""
+13_query_vdb.py — Semantic search against your vector database.
+
+Embeds a natural language query and retrieves the most relevant chunks.
+Run 15_inspect_vdb.py first to confirm the correct embedding model.
+
+Supports hybrid search (vector + BM25 keyword + Reciprocal Rank Fusion):
+  - Best for: exact IDs, error codes, names, multi-hop cross-referencing
+  - Natively supported by LanceDB and Qdrant; client-side fallback for others
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+QUERY  = "How do I authenticate with the API?"  # ← EDIT: your search query
+TOP_K  = 5
+
+EMBEDDING_PROVIDER = "openai"
+EMBEDDING_MODEL    = "text-embedding-3-small"    # ← must match ingestion model
+EMBEDDING_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+VECTOR_DB = "pinecone"
+VECTOR_DB_CONFIG = {
+    "api_key":    os.getenv("PINECONE_API_KEY"),
+    "index_host": os.getenv("PINECONE_INDEX_HOST"),
+}
+
+# Hybrid search — vector + BM25 keyword + Reciprocal Rank Fusion (RRF)
+# HYBRID_SEARCH = True
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "query_results.json")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.query_vectordb(
+    query=QUERY,
+    embedding_provider=EMBEDDING_PROVIDER,
+    embedding_api_key=EMBEDDING_API_KEY,
+    embedding_model=EMBEDDING_MODEL,
+    vector_db=VECTOR_DB,
+    vector_db_config=VECTOR_DB_CONFIG,
+    top_k=TOP_K,
+    # hybrid_search=HYBRID_SEARCH,
+)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"Query:        {QUERY}")
+print(f"Results:      {result.chunks_retrieved}")
+if result.hybrid_search:
+    print(f"Hybrid:       True (vector + BM25 + RRF)")
+print(f"Credits used: ${result.credits_used:.4f}")
+print(f"Remaining:    ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(
+            [
+                {
+                    "score": r.rrf_score if r.rrf_score is not None else r.score,
+                    "text": r.text,
+                    "metadata": r.metadata,
+                    "hybrid_sources": r.hybrid_sources,
+                }
+                for r in result.results
+            ],
+            f, indent=2, ensure_ascii=False,
+        )
+    print(f"✅ Saved {result.chunks_retrieved} results → {out}")
+else:
+    print()
+    for i, r in enumerate(result.results, 1):
+        score = r.rrf_score if r.rrf_score is not None else r.score
+        print(f"── Result {i}  [score: {score:.4f}] ──")
+        print(r.text[:400])
+        print()
+'''
+
+# ── 14: RAG chat ──────────────────────────────────────────────────────────────
+
+EXAMPLES["14_rag_chat.py"] = '''\
+"""
+14_rag_chat.py — Retrieve relevant chunks and generate a grounded LLM answer.
+
+Combines vector search with LLM generation. You bring your own LLM key —
+scrapedatshi only charges for the vector retrieval ($0.0002 / chunk).
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+QUERY  = "How do I authenticate with the API?"  # ← EDIT: your question
+TOP_K  = 5
+
+EMBEDDING_PROVIDER = "openai"
+EMBEDDING_MODEL    = "text-embedding-3-small"    # ← must match ingestion model
+EMBEDDING_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+VECTOR_DB = "pinecone"
+VECTOR_DB_CONFIG = {
+    "api_key":    os.getenv("PINECONE_API_KEY"),
+    "index_host": os.getenv("PINECONE_INDEX_HOST"),
+}
+
+LLM_PROVIDER = "openai"                          # ← EDIT: "openai", "anthropic", or "gemini"
+LLM_MODEL    = "gpt-4o-mini"
+LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+# ── OUTPUT FILE ───────────────────────────────────────────────────────────────
+SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rag_answer.json")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_path(path):
+    """Return path, incrementing (1), (2), ... if the file already exists."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return str(p)
+    stem, suffix, parent = p.stem, p.suffix, p.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        i += 1
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.rag_chat(
+    query=QUERY,
+    embedding_provider=EMBEDDING_PROVIDER,
+    embedding_api_key=EMBEDDING_API_KEY,
+    embedding_model=EMBEDDING_MODEL,
+    vector_db=VECTOR_DB,
+    vector_db_config=VECTOR_DB_CONFIG,
+    llm_provider=LLM_PROVIDER,
+    llm_api_key=LLM_API_KEY,
+    llm_model=LLM_MODEL,
+    top_k=TOP_K,
+)
+
+# ── Terminal output (always shown) ───────────────────────────────────────────
+print(f"Question: {QUERY}")
+print(f"Chunks retrieved: {result.chunks_retrieved}  |  Credits used: ${result.credits_used:.4f}")
+print(f"Remaining: ${result.credits_remaining:.4f}")
+
+# ── File output ───────────────────────────────────────────────────────────────
+if SAVE_TO:
+    out = _safe_path(SAVE_TO)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump({
+            "query": QUERY,
+            "answer": result.answer,
+            "chunks_retrieved": result.chunks_retrieved,
+            "sources": [{"score": s.score, "text": s.text} for s in result.sources],
+        }, f, indent=2, ensure_ascii=False)
+    print(f"✅ Saved answer + sources → {out}")
+else:
+    print()
+    print("Answer:")
+    print(result.answer)
+    print()
+    print("Sources:")
+    for i, source in enumerate(result.sources, 1):
+        print(f"  [{i}] score={source.score:.4f}  {source.text[:120]}...")
+'''
+
+# ── 15: Inspect VDB ───────────────────────────────────────────────────────────
+
+EXAMPLES["15_inspect_vdb.py"] = '''\
+"""
+15_inspect_vdb.py — Read vector database metadata (always free, no credits charged).
+
+Use this to confirm the dimension and embedding model used during ingestion
+before running queries.
+"""
+
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+VECTOR_DB = "pinecone"                     # ← EDIT: your vector DB key
+VECTOR_DB_CONFIG = {
+    "api_key":    os.getenv("PINECONE_API_KEY"),
+    "index_host": os.getenv("PINECONE_INDEX_HOST"),
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
+client = ScrapedatshiClient()
+
+result = client.pipeline.inspect_vectordb(
+    vector_db=VECTOR_DB,
+    vector_db_config=VECTOR_DB_CONFIG,
+)
+
+print(f"Dimension:     {result.dimension}")
+print(f"Total vectors: {result.total_vector_count:,}")
+print()
+print("Suggested embedding models for this dimension:")
+for model in result.suggested_models:
+    print(f"  • {model.label}")
+    print(f"    provider={model.provider}  model={model.model}")
+if result.note:
+    print()
+    print(f"Note: {result.note}")
+print()
+print("(inspect_vectordb is always free — no credits deducted)")
+'''
+
+# ── 16: Capture session ───────────────────────────────────────────────────────
+
+EXAMPLES["16_capture_session.py"] = '''\
+"""
+16_capture_session.py — Capture a browser session for authenticated scraping.
+
+Opens a real, headed browser window so you can log in manually through any
+authentication flow (Okta, Duo, standard login forms, MFA, etc.).  Once you
+press Enter in the terminal the SDK captures the full browser storage state
+(cookies + localStorage) and saves it to session.auth.json.
+
+Requirements:
+  pip install scrapedatshi[auth]
+  playwright install chromium
+
+⚠  WARNING: The generated session.auth.json contains live security keys
+   capable of impersonating your user profile.  Never commit your .auth.json
+   files to Git repositories.  This project\'s .gitignore already filters
+   *.auth.json automatically.
+"""
+
+import json
+import os
+from dotenv import load_dotenv
+from scrapedatshi import ScrapedatshiClient
+from scrapedatshi.auth import capture_session
+
+load_dotenv()
+
+# ── CONFIGURE ────────────────────────────────────────────────────────────────
+LOGIN_URL    = "https://internal.company.com/login"  # ← EDIT: your login page
+CRAWL_URL    = "https://internal.company.com"        # ← EDIT: root URL to crawl
+MAX_PAGES    = 20
+SESSION_FILE = "session.auth.json"                   # saved session (gitignored)
+
+# Optional: choose browser engine — "chromium" (default), "firefox", or "webkit"
+# BROWSER = "chromium"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Step 1: Capture session (or load a previously saved one) ─────────────────
+if os.path.exists(SESSION_FILE):
+    print(f"Loading saved session from {SESSION_FILE}")
+    with open(SESSION_FILE) as f:
+        state = json.load(f)
+else:
+    # Opens a real browser window — log in, then press Enter
+    state = capture_session(
+        url=LOGIN_URL,
+        save_to=SESSION_FILE,
+    )
+
+# ── Step 2: Crawl with the captured session ───────────────────────────────────
+client = ScrapedatshiClient()
+
+result = client.pipeline.crawl(
+    CRAWL_URL,
+    storage_state=state,
+    max_pages=MAX_PAGES,
+)
+
+print(f"Pages crawled: {result.pages_crawled}")
+print(f"Chunks:        {result.total_chunks}")
+print(f"Credits used:  ${result.credits_used:.4f}")
+print(f"Remaining:     ${result.credits_remaining:.4f}")
+print()
+
+for i, chunk in enumerate(result.chunks[:5], 1):
+    print(f"── Chunk {i} ──")
+    print(chunk.content[:200])
+    print()
+'''

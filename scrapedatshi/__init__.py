@@ -72,6 +72,7 @@ from scrapedatshi.models import (
     ExtractCrawlResult,
     ExtractResult,
     IngestResult,
+    PdfExtractResult,
     ScrapeResult,
     SyncResult,
 )
@@ -108,4 +109,5 @@ __all__ = [
     "ExtractCrawlPageResult",
     "AutoRagResult",
     "ScrapeResult",
+    "PdfExtractResult",
 ]
