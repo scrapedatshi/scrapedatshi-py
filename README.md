@@ -720,6 +720,116 @@ for source in result.sources:
 
 **Billing:** $0.0002 per chunk retrieved. LLM tokens are your own cost — scrapedatshi does not bill for LLM usage.
 
+#### RAG Chat with hybrid search + query rewriting
+
+```python
+result = client.pipeline.rag_chat(
+    query="what about the second pricing tier?",
+    embedding_provider="openai",
+    embedding_api_key=os.getenv("OPENAI_API_KEY"),
+    embedding_model="text-embedding-3-small",
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+    llm_provider="openai",
+    llm_api_key=os.getenv("OPENAI_API_KEY"),
+    llm_model="gpt-4o-mini",
+    top_k=5,
+    hybrid_search=True,    # BM25 + vector + RRF
+    query_rewrite=True,    # rewrite query before embedding (uses same LLM — no extra keys)
+    conversation_history=[
+        {"role": "user",      "content": "Tell me about the pricing tiers"},
+        {"role": "assistant", "content": "There are three tiers: Basic, Pro, and Enterprise..."},
+    ],
+)
+print(result.answer)
+if result.rewritten_query:
+    print(f"Searched for: {result.rewritten_query}")
+if result.hybrid_search:
+    print("Hybrid search was used (vector + BM25 + RRF)")
+```
+
+**`query_rewrite=True`** rewrites the raw query into a crisp, self-contained search query before embedding, using the same `llm_provider`/`llm_api_key`/`llm_model` you already provided for answer generation — no extra credentials needed. Resolves pronouns ("it", "that one", "the second") using `conversation_history`. Falls back to the original query on any error.
+
+**`RagChatResult` model:**
+
+```python
+result.query               # str — the original query string
+result.answer              # str — LLM-generated grounded answer
+result.embedding_provider  # str
+result.embedding_model     # str
+result.vector_db_provider  # str
+result.llm_provider        # str
+result.llm_model           # str
+result.top_k_requested     # int
+result.chunks_retrieved    # int
+result.hybrid_search       # bool — True when hybrid search was used
+result.rewritten_query     # str | None — the rewritten query (when query_rewrite=True)
+result.sources             # list[QueryResult] — source chunks used to generate the answer
+result.credits_used        # float
+result.credits_remaining   # float
+result.llm_error           # str | None — set if LLM call failed but chunks were retrieved
+```
+
+### Query Rewriting for `query_vectordb()`
+
+For retrieval-only use cases (no LLM answer generation), pass a `query_rewrite` config dict:
+
+```python
+result = client.pipeline.query_vectordb(
+    query="what about the second one?",
+    embedding_provider="openai",
+    embedding_api_key=os.getenv("OPENAI_API_KEY"),
+    embedding_model="text-embedding-3-small",
+    vector_db="pinecone",
+    vector_db_config={
+        "api_key": os.getenv("PINECONE_API_KEY"),
+        "index_host": os.getenv("PINECONE_INDEX_HOST"),
+    },
+    top_k=5,
+    hybrid_search=True,
+    query_rewrite={
+        "llm_provider": "openai",
+        "llm_api_key": os.getenv("OPENAI_API_KEY"),
+        "llm_model": "gpt-4o-mini",
+        # Optional: prior turns for pronoun resolution
+        "conversation_history": [
+            {"role": "user",      "content": "Tell me about the refund policy"},
+            {"role": "assistant", "content": "The refund window is 30 days..."},
+        ],
+    },
+)
+if result.rewritten_query:
+    print(f"Searched for: {result.rewritten_query}")
+```
+
+The rewrite LLM **does not need to match the embedding model** — any provider (openai, anthropic, gemini) can be used regardless of what embedding model was used at ingestion time.
+
+### CLI — Quick Query
+
+The `scrapedatshi` CLI also supports `query` and `rag-chat` commands for quick terminal searches:
+
+```bash
+# Semantic search
+scrapedatshi query "how do I authenticate?" \
+  --vector-db pinecone \
+  --hybrid
+
+# RAG chat answer
+scrapedatshi rag-chat "how do I authenticate?" \
+  --vector-db pinecone \
+  --llm-provider openai \
+  --llm-model gpt-4o-mini \
+  --query-rewrite
+
+# API keys are resolved from env vars automatically
+# (OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_INDEX_HOST, etc.)
+```
+
+Run `scrapedatshi --help` for the full list of options.
+
 ---
 
 ## Schema Extraction
@@ -1047,9 +1157,10 @@ result.credits_remaining   # float
 ### `QueryVectorDBResult`
 
 ```python
-result.query               # str
+result.query               # str — the original query string
 result.chunks_retrieved    # int
 result.hybrid_search       # bool — True when hybrid (vector + BM25 + RRF) search was used
+result.rewritten_query     # str | None — the rewritten query used for search (when query_rewrite was enabled)
 result.results             # list[QueryResult]
 result.credits_used        # float
 result.credits_remaining   # float

@@ -1072,9 +1072,15 @@ EXAMPLES["13_query_vdb.py"] = '''\
 Embeds a natural language query and retrieves the most relevant chunks.
 Run 15_inspect_vdb.py first to confirm the correct embedding model.
 
-Supports hybrid search (vector + BM25 keyword + Reciprocal Rank Fusion):
-  - Best for: exact IDs, error codes, names, multi-hop cross-referencing
-  - Natively supported by LanceDB and Qdrant; client-side fallback for others
+New capabilities:
+  hybrid_search  — vector + BM25 keyword + Reciprocal Rank Fusion (RRF)
+                   Best for: exact IDs, error codes, names, multi-hop cross-referencing
+                   Natively supported by LanceDB and Qdrant; client-side fallback for others
+
+  query_rewrite  — rewrites conversational queries into crisp search terms before embedding
+                   Uses a cheap LLM call (e.g. gpt-4o-mini) — does NOT need to match the
+                   embedding model. Falls back to the original query on any error.
+                   Best for: chatbot interfaces, follow-up questions with pronouns
 """
 
 import json
@@ -1100,6 +1106,19 @@ VECTOR_DB_CONFIG = {
 
 # Hybrid search — vector + BM25 keyword + Reciprocal Rank Fusion (RRF)
 # HYBRID_SEARCH = True
+
+# Query rewriting — rewrites conversational queries into crisp search terms
+# The rewrite LLM does NOT need to match the embedding model.
+# QUERY_REWRITE = {
+#     "llm_provider": "openai",
+#     "llm_api_key":  os.getenv("OPENAI_API_KEY"),
+#     "llm_model":    "gpt-4o-mini",
+#     # Optional: prior conversation turns for pronoun resolution
+#     # "conversation_history": [
+#     #     {"role": "user",      "content": "Tell me about the refund policy"},
+#     #     {"role": "assistant", "content": "The refund window is 30 days..."},
+#     # ],
+# }
 
 # ── OUTPUT FILE ───────────────────────────────────────────────────────────────
 SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "query_results.json")
@@ -1130,10 +1149,13 @@ result = client.pipeline.query_vectordb(
     vector_db_config=VECTOR_DB_CONFIG,
     top_k=TOP_K,
     # hybrid_search=HYBRID_SEARCH,
+    # query_rewrite=QUERY_REWRITE,
 )
 
 # ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"Query:        {QUERY}")
+if result.rewritten_query:
+    print(f"Rewritten:    {result.rewritten_query}")
 print(f"Results:      {result.chunks_retrieved}")
 if result.hybrid_search:
     print(f"Hybrid:       True (vector + BM25 + RRF)")
@@ -1174,6 +1196,13 @@ EXAMPLES["14_rag_chat.py"] = '''\
 
 Combines vector search with LLM generation. You bring your own LLM key —
 scrapedatshi only charges for the vector retrieval ($0.0002 / chunk).
+
+New capabilities:
+  hybrid_search    — vector + BM25 keyword + RRF for better exact-term matching
+  query_rewrite    — rewrites conversational queries before embedding using the
+                     same LLM you already configured for answer generation
+                     (no extra credentials needed)
+  conversation_history — prior turns for pronoun resolution when query_rewrite=True
 """
 
 import json
@@ -1200,6 +1229,21 @@ VECTOR_DB_CONFIG = {
 LLM_PROVIDER = "openai"                          # ← EDIT: "openai", "anthropic", or "gemini"
 LLM_MODEL    = "gpt-4o-mini"
 LLM_API_KEY  = os.getenv("OPENAI_API_KEY")
+
+# Hybrid search — vector + BM25 keyword + Reciprocal Rank Fusion (RRF)
+# HYBRID_SEARCH = True
+
+# Query rewriting — rewrites conversational queries into crisp search terms
+# Uses the same LLM_PROVIDER / LLM_API_KEY / LLM_MODEL above — no extra keys needed.
+# Falls back to the original query on any error.
+# QUERY_REWRITE = True
+
+# Optional: prior conversation turns for pronoun resolution when QUERY_REWRITE = True
+# CONVERSATION_HISTORY = [
+#     {"role": "user",      "content": "Tell me about the refund policy"},
+#     {"role": "assistant", "content": "The refund window is 30 days..."},
+#     {"role": "user",      "content": "What about digital products?"},
+# ]
 
 # ── OUTPUT FILE ───────────────────────────────────────────────────────────────
 SAVE_TO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rag_answer.json")
@@ -1232,10 +1276,17 @@ result = client.pipeline.rag_chat(
     llm_api_key=LLM_API_KEY,
     llm_model=LLM_MODEL,
     top_k=TOP_K,
+    # hybrid_search=HYBRID_SEARCH,
+    # query_rewrite=QUERY_REWRITE,
+    # conversation_history=CONVERSATION_HISTORY,
 )
 
 # ── Terminal output (always shown) ───────────────────────────────────────────
 print(f"Question: {QUERY}")
+if result.rewritten_query:
+    print(f"Rewritten: {result.rewritten_query}")
+if result.hybrid_search:
+    print(f"Hybrid:    True (vector + BM25 + RRF)")
 print(f"Chunks retrieved: {result.chunks_retrieved}  |  Credits used: ${result.credits_used:.4f}")
 print(f"Remaining: ${result.credits_remaining:.4f}")
 
@@ -1245,9 +1296,18 @@ if SAVE_TO:
     with open(out, "w", encoding="utf-8") as f:
         json.dump({
             "query": QUERY,
+            "rewritten_query": result.rewritten_query,
             "answer": result.answer,
+            "hybrid_search": result.hybrid_search,
             "chunks_retrieved": result.chunks_retrieved,
-            "sources": [{"score": s.score, "text": s.text} for s in result.sources],
+            "sources": [
+                {
+                    "score": s.rrf_score if s.rrf_score is not None else s.score,
+                    "text": s.text,
+                    "hybrid_sources": s.hybrid_sources,
+                }
+                for s in result.sources
+            ],
         }, f, indent=2, ensure_ascii=False)
     print(f"✅ Saved answer + sources → {out}")
 else:
@@ -1257,7 +1317,8 @@ else:
     print()
     print("Sources:")
     for i, source in enumerate(result.sources, 1):
-        print(f"  [{i}] score={source.score:.4f}  {source.text[:120]}...")
+        score = source.rrf_score if source.rrf_score is not None else source.score
+        print(f"  [{i}] score={score:.4f}  {source.text[:120]}...")
 '''
 
 # ── 15: Inspect VDB ───────────────────────────────────────────────────────────

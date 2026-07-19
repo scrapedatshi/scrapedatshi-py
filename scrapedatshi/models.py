@@ -1022,6 +1022,21 @@ class RagChatResult(BaseModel):
     chunks_retrieved: int = Field(
         ..., description="Number of chunks actually retrieved and used as context."
     )
+    hybrid_search: bool = Field(
+        False,
+        description=(
+            "True when hybrid search (vector + BM25 keyword + RRF) was used. "
+            "Results include rrf_score and hybrid_sources fields on each source chunk."
+        ),
+    )
+    rewritten_query: str | None = Field(
+        None,
+        description=(
+            "The rewritten query that was actually used for embedding and search, "
+            "when query_rewrite=True was set and the query was changed. "
+            "None if query rewriting was not used or the query was unchanged."
+        ),
+    )
     sources: list[QueryResult] = Field(
         default_factory=list,
         description="Source chunks used to generate the answer, ordered by similarity score.",
@@ -1074,6 +1089,14 @@ class QueryVectorDBResult(BaseModel):
         description=(
             "True when hybrid search (vector + BM25 keyword + RRF) was used. "
             "Results include rrf_score and hybrid_sources fields."
+        ),
+    )
+    rewritten_query: str | None = Field(
+        None,
+        description=(
+            "The rewritten query that was actually used for embedding and search, "
+            "when query_rewrite was enabled and the query was changed. "
+            "None if query rewriting was not used or the query was unchanged."
         ),
     )
     results: list[QueryResult] = Field(

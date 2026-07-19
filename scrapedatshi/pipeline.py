@@ -1921,6 +1921,8 @@ class PipelineNamespace:
         vector_db: str,
         vector_db_config: dict,
         top_k: int = 5,
+        hybrid_search: bool = False,
+        query_rewrite: dict | None = None,
     ) -> QueryVectorDBResult:
         """
         Query your vector database using natural language.
@@ -1948,6 +1950,26 @@ class PipelineNamespace:
                 Same shape as :meth:`sync`. Supports ``"USE_SAVED_CREDENTIAL"``.
             top_k: Number of results to return (default: 5, max: 50).
                 Billed at $0.0002 per chunk returned.
+            hybrid_search: If True, combines dense vector search with BM25 keyword
+                search using Reciprocal Rank Fusion (RRF). Improves accuracy for
+                exact terms, IDs, names, and error codes. Default: False.
+            query_rewrite: Optional query rewriting config. When provided, a cheap
+                LLM call rewrites the raw query into a crisp, self-contained search
+                query before embedding. The rewrite LLM does NOT need to match the
+                embedding model. Falls back to the original query on any error.
+
+                Format::
+
+                    query_rewrite={
+                        "llm_provider": "openai",
+                        "llm_api_key": "sk-...",
+                        "llm_model": "gpt-4o-mini",
+                        # Optional: prior turns for pronoun resolution
+                        "conversation_history": [
+                            {"role": "user", "content": "Tell me about the refund policy"},
+                            {"role": "assistant", "content": "The refund window is 30 days..."},
+                        ],
+                    }
 
         Returns:
             :class:`~scrapedatshi.models.QueryVectorDBResult`
@@ -1975,10 +1997,28 @@ class PipelineNamespace:
                 vector_db="pinecone",
                 vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
                 top_k=5,
+                hybrid_search=True,  # BM25 + vector + RRF
             )
             print(f"Found {result.chunks_retrieved} results (cost: ${result.credits_used:.4f})")
             for r in result.results:
                 print(f"  [{r.score:.2f}] {r.text[:100]}...")
+
+            # With query rewriting — resolves pronouns and conversational filler
+            result = client.pipeline.query_vectordb(
+                query="what about the second pricing tier?",
+                embedding_provider="openai",
+                embedding_api_key="sk-...",
+                embedding_model="text-embedding-3-small",
+                vector_db="pinecone",
+                vector_db_config={"api_key": "pc-...", "index_host": "https://..."},
+                query_rewrite={
+                    "llm_provider": "openai",
+                    "llm_api_key": "sk-...",
+                    "llm_model": "gpt-4o-mini",
+                },
+            )
+            if result.rewritten_query:
+                print(f"Searched for: {result.rewritten_query}")
         """
         payload: dict = {
             "query": query,
@@ -1990,6 +2030,11 @@ class PipelineNamespace:
             },
             "vector_db": {"provider": vector_db, **vector_db_config},
         }
+        if hybrid_search:
+            payload["hybrid_search"] = True
+        if query_rewrite:
+            payload["query_rewrite"] = query_rewrite
+
         data = self._client._post("/v1/query", json=payload)
         return QueryVectorDBResult(
             query=data.get("query", query),
@@ -1998,11 +2043,15 @@ class PipelineNamespace:
             vector_db_provider=data.get("vector_db_provider", vector_db),
             top_k_requested=data.get("top_k_requested", top_k),
             chunks_retrieved=data.get("chunks_retrieved", 0),
+            hybrid_search=bool(data.get("hybrid_search", False)),
+            rewritten_query=data.get("rewritten_query"),
             results=[
                 QueryResult(
                     text=r.get("text", ""),
                     score=float(r.get("score", 0.0)),
                     metadata=r.get("metadata", {}),
+                    rrf_score=r.get("rrf_score"),
+                    hybrid_sources=r.get("hybrid_sources"),
                 )
                 for r in data.get("results", [])
             ],
@@ -2020,6 +2069,8 @@ class PipelineNamespace:
         vector_db: str,
         vector_db_config: dict,
         top_k: int = 5,
+        hybrid_search: bool = False,
+        query_rewrite: dict | None = None,
     ) -> QueryVectorDBResult:
         """Async version of :meth:`query_vectordb`."""
         payload: dict = {
@@ -2032,6 +2083,11 @@ class PipelineNamespace:
             },
             "vector_db": {"provider": vector_db, **vector_db_config},
         }
+        if hybrid_search:
+            payload["hybrid_search"] = True
+        if query_rewrite:
+            payload["query_rewrite"] = query_rewrite
+
         data = await self._client._post_async("/v1/query", json=payload)
         return QueryVectorDBResult(
             query=data.get("query", query),
@@ -2040,11 +2096,15 @@ class PipelineNamespace:
             vector_db_provider=data.get("vector_db_provider", vector_db),
             top_k_requested=data.get("top_k_requested", top_k),
             chunks_retrieved=data.get("chunks_retrieved", 0),
+            hybrid_search=bool(data.get("hybrid_search", False)),
+            rewritten_query=data.get("rewritten_query"),
             results=[
                 QueryResult(
                     text=r.get("text", ""),
                     score=float(r.get("score", 0.0)),
                     metadata=r.get("metadata", {}),
+                    rrf_score=r.get("rrf_score"),
+                    hybrid_sources=r.get("hybrid_sources"),
                 )
                 for r in data.get("results", [])
             ],
@@ -2067,6 +2127,9 @@ class PipelineNamespace:
         llm_api_key: str,
         llm_model: str,
         top_k: int = 5,
+        hybrid_search: bool = False,
+        query_rewrite: bool = False,
+        conversation_history: list[dict] | None = None,
     ) -> RagChatResult:
         """
         RAG Chat: embed a query, retrieve the most relevant chunks from your
@@ -2094,6 +2157,25 @@ class PipelineNamespace:
             llm_model: LLM model name for answer generation.
             top_k: Number of chunks to retrieve (default: 5, max: 20).
                 Billed at $0.0002 per chunk retrieved.
+            hybrid_search: If True, combines dense vector search with BM25 keyword
+                search using Reciprocal Rank Fusion (RRF). Improves accuracy for
+                exact terms, IDs, names, and error codes. Default: False.
+            query_rewrite: If True, rewrites the raw query into a crisp, self-contained
+                search query before embedding, using the same ``llm_provider``,
+                ``llm_api_key``, and ``llm_model`` you already provided for answer
+                generation. Resolves pronouns and conversational filler. Falls back
+                to the original query on any error. Default: False.
+            conversation_history: Optional prior conversation turns for pronoun
+                resolution when ``query_rewrite=True``. Format::
+
+                    [
+                        {"role": "user", "content": "Tell me about the refund policy"},
+                        {"role": "assistant", "content": "The refund window is 30 days..."},
+                        {"role": "user", "content": "What about digital products?"},
+                    ]
+
+                Last 3 exchanges are used. Enables resolving "it", "that one",
+                "the second", etc.
 
         Returns:
             :class:`~scrapedatshi.models.RagChatResult`
@@ -2115,8 +2197,12 @@ class PipelineNamespace:
                 llm_api_key="sk-...",
                 llm_model="gpt-4o-mini",
                 top_k=5,
+                hybrid_search=True,   # BM25 + vector + RRF
+                query_rewrite=True,   # rewrite using the same LLM
             )
             print(result.answer)
+            if result.rewritten_query:
+                print(f"Searched for: {result.rewritten_query}")
             print(f"Based on {result.chunks_retrieved} chunks (cost: ${result.credits_used:.4f})")
             for source in result.sources:
                 print(f"  [{source.score:.2f}] {source.text[:80]}...")
@@ -2134,6 +2220,13 @@ class PipelineNamespace:
             "llm_api_key": llm_api_key,
             "llm_model": llm_model,
         }
+        if hybrid_search:
+            payload["hybrid_search"] = True
+        if query_rewrite:
+            payload["query_rewrite"] = True
+        if conversation_history:
+            payload["conversation_history"] = conversation_history
+
         data = self._client._post("/v1/rag-chat", json=payload)
         return RagChatResult(
             query=data.get("query", query),
@@ -2145,11 +2238,15 @@ class PipelineNamespace:
             llm_model=data.get("llm_model", llm_model),
             top_k_requested=data.get("top_k_requested", top_k),
             chunks_retrieved=data.get("chunks_retrieved", 0),
+            hybrid_search=bool(data.get("hybrid_search", False)),
+            rewritten_query=data.get("rewritten_query"),
             sources=[
                 QueryResult(
                     text=r.get("text", ""),
                     score=float(r.get("score", 0.0)),
                     metadata=r.get("metadata", {}),
+                    rrf_score=r.get("rrf_score"),
+                    hybrid_sources=r.get("hybrid_sources"),
                 )
                 for r in data.get("sources", [])
             ],
@@ -2171,6 +2268,9 @@ class PipelineNamespace:
         llm_api_key: str,
         llm_model: str,
         top_k: int = 5,
+        hybrid_search: bool = False,
+        query_rewrite: bool = False,
+        conversation_history: list[dict] | None = None,
     ) -> RagChatResult:
         """Async version of :meth:`rag_chat`."""
         payload: dict = {
@@ -2186,6 +2286,13 @@ class PipelineNamespace:
             "llm_api_key": llm_api_key,
             "llm_model": llm_model,
         }
+        if hybrid_search:
+            payload["hybrid_search"] = True
+        if query_rewrite:
+            payload["query_rewrite"] = True
+        if conversation_history:
+            payload["conversation_history"] = conversation_history
+
         data = await self._client._post_async("/v1/rag-chat", json=payload)
         return RagChatResult(
             query=data.get("query", query),
@@ -2197,11 +2304,15 @@ class PipelineNamespace:
             llm_model=data.get("llm_model", llm_model),
             top_k_requested=data.get("top_k_requested", top_k),
             chunks_retrieved=data.get("chunks_retrieved", 0),
+            hybrid_search=bool(data.get("hybrid_search", False)),
+            rewritten_query=data.get("rewritten_query"),
             sources=[
                 QueryResult(
                     text=r.get("text", ""),
                     score=float(r.get("score", 0.0)),
                     metadata=r.get("metadata", {}),
+                    rrf_score=r.get("rrf_score"),
+                    hybrid_sources=r.get("hybrid_sources"),
                 )
                 for r in data.get("sources", [])
             ],
