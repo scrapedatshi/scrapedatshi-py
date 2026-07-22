@@ -186,9 +186,17 @@ class ExtractMixin:
         include_pattern: str | None = None,
         exclude_pattern: str | None = None,
         extract_as_list: bool = False,
+        llm_rpm: int | None = None,
     ) -> ExtractCrawlResult:
         """
         Crawl a domain and extract structured data from every page using your LLM.
+
+        Args:
+            llm_rpm: Optional rate limit in requests-per-minute for LLM calls.
+                     Use this to avoid hitting provider rate limits, e.g.:
+                       - llm_rpm=10  for Gemini free / Tier-1
+                       - llm_rpm=60  for OpenAI Tier-1
+                     When omitted the server uses a short jittered politeness delay.
         """
         payload: dict = {
             "url": url,
@@ -208,6 +216,8 @@ class ExtractMixin:
             payload["exclude_pattern"] = exclude_pattern
         if extract_as_list:
             payload["extract_as_list"] = True
+        if llm_rpm is not None:
+            payload["llm_rpm"] = llm_rpm
 
         data = self._client._post("/v1/extract-crawl", json=payload)
         return _parse_extract_crawl_result(data)
@@ -226,8 +236,17 @@ class ExtractMixin:
         include_pattern: str | None = None,
         exclude_pattern: str | None = None,
         extract_as_list: bool = False,
+        llm_rpm: int | None = None,
     ) -> ExtractCrawlResult:
-        """Async version of :meth:`extract_crawl`."""
+        """Async version of :meth:`extract_crawl`.
+
+        Args:
+            llm_rpm: Optional rate limit in requests-per-minute for LLM calls.
+                     Use this to avoid hitting provider rate limits, e.g.:
+                       - llm_rpm=10  for Gemini free / Tier-1
+                       - llm_rpm=60  for OpenAI Tier-1
+                     When omitted the server uses a short jittered politeness delay.
+        """
         payload: dict = {
             "url": url,
             "schema": schema,
@@ -246,6 +265,8 @@ class ExtractMixin:
             payload["exclude_pattern"] = exclude_pattern
         if extract_as_list:
             payload["extract_as_list"] = True
+        if llm_rpm is not None:
+            payload["llm_rpm"] = llm_rpm
 
         data = await self._client._post_async("/v1/extract-crawl", json=payload)
         return _parse_extract_crawl_result(data)

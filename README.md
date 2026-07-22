@@ -893,6 +893,7 @@ result = client.pipeline.extract_crawl(
     llm_api_key="sk-...",
     llm_model="gpt-4o-mini",
     max_pages=20,
+    crawl_mode="sitemap",       # "sitemap" (default) or "spider"
     include_pattern="/products/",
 )
 print(f"Extracted {result.pages_extracted}/{result.pages_attempted} pages")
@@ -908,6 +909,65 @@ for page in result.results:
 for page in result.successful_results:
     print(page.extracted["title"], page.extracted["price"])
 ```
+
+#### Extract a list of items per page
+
+Use `extract_as_list=True` when each crawled page contains **multiple matching items** (e.g. a category listing page with many products):
+
+```python
+result = client.pipeline.extract_crawl(
+    url="https://example.com/shop",
+    schema={
+        "title": "string — the product name",
+        "price": "number — the price in USD",
+    },
+    llm_provider="openai",
+    llm_api_key="sk-...",
+    llm_model="gpt-4o-mini",
+    max_pages=5,
+    extract_as_list=True,   # each page returns a list of items instead of one object
+)
+for page in result.successful_results:
+    print(f"{page.url}: {len(page.extracted)} items")
+    for item in page.extracted:
+        print(f"  {item['title']}: ${item['price']}")
+```
+
+#### Rate limiting with `llm_rpm`
+
+Use `llm_rpm` to throttle LLM calls and avoid hitting provider rate limits. The server will space out requests to stay within the specified requests-per-minute budget.
+
+| Provider | Tier | Recommended `llm_rpm` |
+|---|---|---|
+| Gemini | Free / Tier-1 | `10` |
+| Gemini | Tier-2+ | `60` |
+| OpenAI | Tier-1 | `60` |
+| OpenAI | Tier-2+ | `500` |
+| Anthropic | Tier-1 | `50` |
+
+```python
+result = client.pipeline.extract_crawl(
+    url="https://pawsafe.com/collections/all",
+    schema={
+        "title":        "string — the product title",
+        "price":        "number — price in USD",
+        "in_stock":     "boolean — true if currently in stock",
+        "review_count": "number — total number of customer reviews if visible",
+        "rating":       "number — average star rating out of 5",
+        "image_url":    "string — main image link",
+    },
+    llm_provider="gemini",
+    llm_api_key="AIza...",
+    llm_model="gemini-2.5-flash",
+    max_pages=50,
+    crawl_mode="sitemap",
+    include_pattern="/products/",
+    llm_rpm=10,   # ← throttle to 10 calls/min for Gemini Tier-1
+)
+print(f"Extracted {result.pages_extracted}/{result.pages_attempted} pages")
+```
+
+When `llm_rpm` is omitted, the server uses a short jittered politeness delay (0.4–0.9 s) between pages — suitable for providers with high rate limits.
 
 **Billing:** `$0.0020 + $0.0030 + (N_fields × $0.0001)` per successfully extracted page.
 
